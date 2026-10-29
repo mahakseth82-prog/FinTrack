@@ -421,23 +421,35 @@ export function useLogReminderSent(workspaceId: string | null) {
 }
 
 /**
- * Mutation: Scan a paper bill / parchi image via Gemini Vision (`/api/v1/ingestion/bill-ocr`).
+ * Mutation: Scan a paper bill / parchi image via Gemini Vision (`/api/v1/ingestion/bill-ocr`)
+ * and automatically add the extracted spend directly to `Recent Spends`.
  */
 export function useScanBillOcr(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: (payload: { imageBase64: string; mimeType?: string }) =>
-      apiFetch<{ draft: IngestionDraftDto }>('/ingestion/bill-ocr', {
+      apiFetch<{
+        autoSaved?: boolean;
+        draft: IngestionDraftDto;
+        savedSummary?: {
+          id: string;
+          title: string;
+          amountPaise: number;
+          amountFormatted: string;
+          categoryName: string;
+          paymentVia: string;
+        };
+      }>('/ingestion/bill-ocr', {
         method: 'POST',
         workspaceId,
         body: payload,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
       queryClient.invalidateQueries({
         queryKey: ['dashboard-summary', workspaceId],
       });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
     },
   });
 }

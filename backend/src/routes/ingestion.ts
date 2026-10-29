@@ -60,13 +60,11 @@ export function buildUpiDedupeFingerprint(params: {
   merchantName: string;
   postedAtMs?: number;
 }): string {
-  // If 12-digit UPI Reference ID is present, deduplicate strictly on workspace + amount + UTR
   if (params.upiReferenceId) {
     const rawKey = `${params.workspaceId}|UTR|${params.upiReferenceId}|${params.amountPaise}`;
     return crypto.createHash('sha256').update(rawKey).digest('hex').slice(0, 32);
   }
 
-  // Otherwise bucket into 5-minute windows + amountPaise + normalized tokens
   const timestamp = params.postedAtMs || Date.now();
   const fiveMinBucket = Math.floor(timestamp / (5 * 60 * 1000));
   const normalizedMerchant = params.merchantName
@@ -113,9 +111,44 @@ function mapDraftRow(row: Record<string, any>) {
 }
 
 /**
+ * Helper to resolve or create a category in the workspace
+ */
+async function resolveOrCreateCategory(params: {
+  db: any;
+  workspaceId: string;
+  userId: string;
+  categoryName: string;
+  kind: 'EXPENSE' | 'INCOME';
+}): Promise<string | null> {
+  const { db, workspaceId, userId, categoryName, kind } = params;
+  const { data: cat } = await db
+    .from('categories')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('name', categoryName)
+    .eq('kind', kind)
+    .maybeSingle();
+
+  if (cat?.id) return cat.id;
+
+  const { data: newCat } = await db
+    .from('categories')
+    .insert({
+      workspace_id: workspaceId,
+      user_id: userId,
+      name: categoryName,
+      kind,
+    })
+    .select('id')
+    .single();
+
+  return newCat?.id || null;
+}
+
+/**
  * POST /api/v1/ingestion/bill-ocr
  * Scans a paper bill / parchi image with Gemini Vision, converts total to integer paise,
- * and saves a `BILL_OCR` draft in `public.ingestion_drafts`.
+ * and AUTOMATICALLY saves the transaction directly to `public.transactions` (`Recent Spends`).
  */
 router.post(
   '/ingestion/bill-ocr',
@@ -151,45 +184,58 @@ router.post(
           ? rupeesToPaise(ocrResult.totalRupees)
           : null;
 
-      const needsClarification = amountPaise === null;
+      if (!amountPaise || amountPaise <= 0) {
+        res.status(400).json({
+          error:
+            'Could not detect a clear bill total on this image. Please try a clearer photo or type the spend directly.',
+        });
+        return;
+      }
 
-      const { data: inserted, error } = await req.db!
-        .from('ingestion_drafts')
+      const merchantName = ocrResult.merchantName || 'Scanned Bill';
+      const categoryName = ocrResult.suggestedCategory || 'Grocery & Rashan';
+      const paymentVia = ocrResult.paymentVia || 'CASH';
+
+      const categoryId = await resolveOrCreateCategory({
+        db: req.db!,
+        workspaceId,
+        userId: req.userId!,
+        categoryName,
+        kind: 'EXPENSE',
+      });
+
+      const { data: tx, error: txErr } = await req.db!
+        .from('transactions')
         .insert({
           workspace_id: workspaceId,
           user_id: req.userId!,
-          source: 'BILL_OCR',
-          intent: 'EXPENSE',
-          status: needsClarification
-            ? 'NEEDS_CLARIFICATION'
-            : 'PENDING_CONFIRMATION',
-          raw_input_text: `Bill from ${ocrResult.merchantName}: ${ocrResult.summaryNote}`,
-          extracted_amount_paise: amountPaise,
-          extracted_contact_name: ocrResult.merchantName,
-          extracted_category_name: ocrResult.suggestedCategory,
-          payment_via: ocrResult.paymentVia || 'CASH',
-          ambiguity_question: needsClarification
-            ? 'Bill par total amount saaf nahi dikh raha. Kitne rupaye ka bill hai?'
-            : null,
-          ai_confidence: ocrResult.confidence ?? 0.9,
-          structured_payload: {
-            description: ocrResult.summaryNote,
-            billDate: ocrResult.billDate,
-            lineItems: ocrResult.lineItems,
-          },
+          category_id: categoryId,
+          kind: 'EXPENSE',
+          amount_paise: amountPaise,
+          payment_via: paymentVia,
+          merchant_or_payee: merchantName,
+          description: ocrResult.summaryNote || `Scanned bill from ${merchantName}`,
         })
         .select('*')
         .single();
 
-      if (error || !inserted) {
-        res
-          .status(500)
-          .json({ error: error?.message || 'Failed to save Bill OCR draft' });
+      if (txErr || !tx) {
+        res.status(500).json({
+          error: txErr?.message || 'Failed to save scanned bill transaction',
+        });
         return;
       }
 
       res.status(201).json({
-        draft: mapDraftRow(inserted),
+        autoSaved: true,
+        savedSummary: {
+          id: tx.id,
+          title: merchantName,
+          amountPaise,
+          amountFormatted: formatINR(amountPaise),
+          categoryName,
+          paymentVia,
+        },
         ocrSummary: ocrResult,
       });
     } catch (err: unknown) {
@@ -202,8 +248,8 @@ router.post(
 
 /**
  * POST /api/v1/ingestion/upi-notification
- * Ingests an Android NotificationListenerService UPI alert (GPay, PhonePe, Paytm, Bank)
- * and prevents duplicate drafts using deterministic SHA-256 fingerprinting.
+ * Ingests an Android NotificationListenerService UPI alert (GPay, PhonePe, Paytm, Bank),
+ * prevents duplicates via SHA-256 fingerprinting, and saves directly to `public.transactions`.
  */
 router.post(
   '/ingestion/upi-notification',
@@ -238,7 +284,6 @@ router.post(
         postedAtMs,
       });
 
-      // Check if an identical payment draft already exists (e.g. GPay + Bank notification for same payment)
       const { data: existingDraft } = await req.db!
         .from('ingestion_drafts')
         .select('*')
@@ -251,28 +296,30 @@ router.post(
         res.status(200).json({
           duplicateSkipped: true,
           reason:
-            'Duplicate UPI payment notification detected (matched fingerprint). Skipped creating second draft.',
+            'Duplicate UPI payment notification detected (matched fingerprint). Skipped.',
           fingerprint,
           draft: mapDraftRow(existingDraft),
         });
         return;
       }
 
-      const { data: inserted, error } = await req.db!
+      const categoryName =
+        parsed.intent === 'INCOME' ? 'Salary & Income' : 'Grocery & Rashan';
+
+      const { data: insertedDraft, error } = await req.db!
         .from('ingestion_drafts')
         .insert({
           workspace_id: workspaceId,
           user_id: req.userId!,
           source: 'UPI_NOTIFICATION',
           intent: parsed.intent,
-          status: 'PENDING_CONFIRMATION',
+          status: 'CONFIRMED',
           raw_input_text: parsed.rawText,
           extracted_amount_paise: parsed.amountPaise,
           extracted_contact_name: parsed.merchantName,
-          extracted_category_name:
-            parsed.intent === 'INCOME' ? 'Salary & Income' : 'Grocery & Rashan',
+          extracted_category_name: categoryName,
           payment_via: 'UPI',
-          upi_reference_id: parsed.upiReferenceId,
+          upi_reference_id: parsed.upiReferenceId || fingerprint,
           dedupe_fingerprint: fingerprint,
           ai_confidence: 0.98,
           structured_payload: {
@@ -283,17 +330,39 @@ router.post(
         .select('*')
         .single();
 
-      if (error || !inserted) {
+      if (error || !insertedDraft) {
         res
           .status(500)
-          .json({ error: error?.message || 'Failed to stage UPI draft' });
+          .json({ error: error?.message || 'Failed to record UPI notification' });
         return;
       }
 
+      const categoryId = await resolveOrCreateCategory({
+        db: req.db!,
+        workspaceId,
+        userId: req.userId!,
+        categoryName,
+        kind: parsed.intent,
+      });
+
+      await req.db!.from('transactions').insert({
+        workspace_id: workspaceId,
+        user_id: req.userId!,
+        category_id: categoryId,
+        kind: parsed.intent,
+        amount_paise: parsed.amountPaise,
+        payment_via: 'UPI',
+        upi_reference_id: parsed.upiReferenceId || `NOTIF-${fingerprint.slice(0, 10)}`,
+        merchant_or_payee: parsed.merchantName,
+        description: parsed.rawText,
+        source_draft_id: insertedDraft.id,
+      });
+
       res.status(201).json({
         duplicateSkipped: false,
+        autoSaved: true,
         fingerprint,
-        draft: mapDraftRow(inserted),
+        draft: mapDraftRow(insertedDraft),
       });
     } catch (err: unknown) {
       const message =
@@ -304,4 +373,3 @@ router.post(
 );
 
 export default router;
-

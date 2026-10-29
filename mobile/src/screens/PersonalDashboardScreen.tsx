@@ -8,6 +8,7 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useDashboardSummary,
@@ -15,6 +16,7 @@ import {
   useContactsList,
   useCreateTransaction,
   useParseVoiceDraft,
+  useScanBillOcr,
 } from '../hooks/useFinTrackQueries';
 import { TransactionDto, TransactionKind } from '../types/ledger';
 import { formatINR } from '../utils/paise';
@@ -26,7 +28,6 @@ import {
 
 interface PersonalDashboardProps {
   onOpenContactDetail: (contactId: string) => void;
-  onOpenDraftsTab: () => void;
 }
 
 interface DailyTransactionGroup {
@@ -121,7 +122,6 @@ function formatTransactionSubtitle(
 
 export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   onOpenContactDetail,
-  onOpenDraftsTab,
 }) => {
   const { palette, activeWorkspaceId } = useFinTrackTheme();
 
@@ -131,8 +131,10 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const udhaarQuery = useContactsList(activeWorkspaceId);
   const createTxMutation = useCreateTransaction(activeWorkspaceId);
   const parseVoiceMutation = useParseVoiceDraft(activeWorkspaceId);
+  const scanBillMutation = useScanBillOcr(activeWorkspaceId);
 
   const [quickInput, setQuickInput] = useState('');
+  const [scanStatusMsg, setScanStatusMsg] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [txKind, setTxKind] = useState<TransactionKind>('EXPENSE');
   const [merchant, setMerchant] = useState('');
@@ -236,11 +238,52 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const handleQuickSave = async () => {
     const trimmed = quickInput.trim();
     if (!trimmed) return;
+    setScanStatusMsg(null);
     await parseVoiceMutation.mutateAsync({
       utteranceText: trimmed,
       autoSave: true,
     });
     setQuickInput('');
+  };
+
+  /**
+   * Direct Home Page Bill Scanner:
+   * Opens image picker / camera directly from Home page, scans via Gemini Vision,
+   * and adds the spend straight into `Recent Spends`.
+   */
+  const handleScanBill = async () => {
+    setScanStatusMsg(null);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        base64: true,
+        quality: 0.7,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.base64) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      setScanStatusMsg('Scanning bill & adding to Recent Spends...');
+      const res = await scanBillMutation.mutateAsync({
+        imageBase64: asset.base64!,
+        mimeType: asset.mimeType || 'image/jpeg',
+      });
+
+      if (res.savedSummary) {
+        setScanStatusMsg(
+          `Added from bill: ${res.savedSummary.title} (-${res.savedSummary.amountFormatted})`
+        );
+        setTimeout(() => setScanStatusMsg(null), 3500);
+      } else {
+        setScanStatusMsg(null);
+      }
+    } catch (err: unknown) {
+      setScanStatusMsg(
+        err instanceof Error ? err.message : 'Could not scan bill photo'
+      );
+    }
   };
 
   const handleSaveTransaction = async () => {
@@ -251,7 +294,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       merchantOrPayee: merchant.trim() || category.trim(),
       description: description.trim(),
       amountRupees: amountRupees.trim(),
-      paymentVia: 'UPI',
+      paymentVia: 'CASH',
     });
     setAmountRupees('');
     setMerchant('');
@@ -267,16 +310,26 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       {/* 1. Minimal Statement Summary Bar */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryHeaderRow}>
-          <Text style={styles.summaryTitle}>Monthly Statement</Text>
-          <TouchableOpacity
-            onPress={() => setShowAddModal(true)}
-            style={[
-              styles.addEntryBtn,
-              { backgroundColor: palette.primaryBrown },
-            ]}
-          >
-            <Text style={styles.addEntryBtnText}>+ Add Entry</Text>
-          </TouchableOpacity>
+          <Text style={styles.summaryTitle}>Monthly Overview</Text>
+          <View style={styles.headerActionBtns}>
+            <TouchableOpacity
+              onPress={handleScanBill}
+              disabled={scanBillMutation.isPending}
+              style={styles.cameraIconBtn}
+            >
+              <Text style={styles.cameraIconText}>📷</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowAddModal(true)}
+              style={[
+                styles.addEntryBtn,
+                { backgroundColor: palette.primaryBrown },
+              ]}
+            >
+              <Text style={styles.addEntryBtnText}>+ Add Entry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.summaryMetricsRow}>
@@ -306,7 +359,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </View>
         </View>
 
-        {/* Inline 1-Line Quick Add Bar (Auto-saves directly without extra pages) */}
+        {/* Inline 1-Line Quick Add Bar + Camera Icon (Auto-saves directly to Recent Spends) */}
         <View style={styles.quickAddRow}>
           <TextInput
             value={quickInput}
@@ -316,6 +369,13 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             onSubmitEditing={handleQuickSave}
             style={styles.quickAddInput}
           />
+          <TouchableOpacity
+            onPress={handleScanBill}
+            disabled={scanBillMutation.isPending}
+            style={styles.quickCameraBtn}
+          >
+            <Text style={styles.cameraIconText}>📷</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={handleQuickSave}
             disabled={parseVoiceMutation.isPending}
@@ -327,16 +387,8 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {(summary?.detectedUpiCount || 0) > 0 && (
-          <TouchableOpacity
-            onPress={onOpenDraftsTab}
-            style={styles.pendingDraftsStrip}
-          >
-            <Text style={styles.pendingDraftsText}>
-              {summary?.detectedUpiCount} pending draft(s) awaiting confirmation
-            </Text>
-            <Text style={styles.pendingDraftsLink}>Review →</Text>
-          </TouchableOpacity>
+        {scanStatusMsg && (
+          <Text style={styles.scanStatusText}>{scanStatusMsg}</Text>
         )}
       </View>
 
@@ -610,6 +662,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
+  headerActionBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cameraIconBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraIconText: {
+    fontSize: 14,
+  },
   addEntryBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -673,6 +743,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0F172A',
   },
+  quickCameraBtn: {
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   quickAddBtn: {
     backgroundColor: '#0F172A',
     paddingHorizontal: 14,
@@ -684,6 +763,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+  scanStatusText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#15803D',
   },
   pendingDraftsStrip: {
     marginTop: 12,
