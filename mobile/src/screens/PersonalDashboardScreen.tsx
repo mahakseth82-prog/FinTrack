@@ -51,7 +51,18 @@ const SHORT_MONTHS = [
   'Dec',
 ];
 
-function formatPassbookDateLabel(dateKey: string, todayIso: string): string {
+function toLocalDateKey(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatPassbookDateLabel(
+  dateKey: string,
+  todayKey: string,
+  yesterdayKey: string
+): string {
   const parts = dateKey.split('-');
   if (parts.length !== 3) return dateKey;
   const year = Number(parts[0]);
@@ -59,8 +70,11 @@ function formatPassbookDateLabel(dateKey: string, todayIso: string): string {
   const day = Number(parts[2]);
   const monthName = SHORT_MONTHS[monthIdx] || parts[1];
 
-  if (dateKey === todayIso) {
+  if (dateKey === todayKey) {
     return `Today, ${day} ${monthName}`;
+  }
+  if (dateKey === yesterdayKey) {
+    return `Yesterday, ${day} ${monthName}`;
   }
   return `${day} ${monthName} ${year}`;
 }
@@ -75,6 +89,34 @@ function formatPassbookTime(isoOrString: string): string {
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
   return `${hours.toString().padStart(2, '0')}:${minutes} ${ampm}`;
+}
+
+/**
+ * 1. PAYMENT METHOD LABEL RULE (NO UNNECESSARY 'UPI' TAGS)
+ * - Imported online transactions ('NOTIFICATION', 'SMS', 'EMAIL'): "📱 UPI • 08:30 PM"
+ * - Card / Bank Transfer: "Card • 04:30 PM" / "Bank Transfer • 03:00 PM"
+ * - Cash or Voice/Manual entry: only show timestamp ("07:49 PM")
+ */
+function formatTransactionSubtitle(
+  tx: TransactionDto,
+  formattedTime: string
+): string {
+  const isImported =
+    tx.isImported === true ||
+    ['NOTIFICATION', 'SMS', 'EMAIL', 'UPI_NOTIFICATION'].includes(
+      String(tx.sourceType || '').toUpperCase()
+    );
+
+  if (isImported) {
+    return `📱 UPI • ${formattedTime}`;
+  }
+  if (tx.paymentVia === 'CARD') {
+    return `Card • ${formattedTime}`;
+  }
+  if (tx.paymentVia === 'BANK_TRANSFER') {
+    return `Bank Transfer • ${formattedTime}`;
+  }
+  return formattedTime;
 }
 
 export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
@@ -110,7 +152,11 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
    * - Calculate daily total spent per group using integer paise
    */
   const groupedTransactions = useMemo<DailyTransactionGroup[]>(() => {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const todayKey = toLocalDateKey(now);
+    const yest = new Date(now);
+    yest.setDate(now.getDate() - 1);
+    const yesterdayKey = toLocalDateKey(yest);
 
     const sorted = [...recentTransactions].sort((a, b) => {
       const tA = new Date(a.occurredAt).getTime() || 0;
@@ -123,14 +169,18 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     for (const tx of sorted) {
       const parsedDate = new Date(tx.occurredAt);
       const dateKey = !Number.isNaN(parsedDate.getTime())
-        ? parsedDate.toISOString().slice(0, 10)
-        : todayIso;
+        ? toLocalDateKey(parsedDate)
+        : todayKey;
 
       let group = groupsMap.get(dateKey);
       if (!group) {
         group = {
           dateKey,
-          displayDate: formatPassbookDateLabel(dateKey, todayIso),
+          displayDate: formatPassbookDateLabel(
+            dateKey,
+            todayKey,
+            yesterdayKey
+          ),
           dailyTotalSpentPaise: 0,
           items: [],
         };
@@ -389,16 +439,16 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         </View>
       )}
 
-      {/* 4. Minimal Date-Based Passbook Transaction List */}
+      {/* 4. Minimal Date-Based Recent Spends List */}
       <View style={styles.passbookContainer}>
         <View style={styles.passbookTitleWrap}>
-          <Text style={styles.cardSectionTitle}>Passbook Transactions</Text>
+          <Text style={styles.cardSectionTitle}>Recent Spends</Text>
         </View>
 
         {groupedTransactions.length === 0 ? (
           <View style={{ padding: 16 }}>
             <EmptyStateCard
-              title="No Transactions Yet"
+              title="No Spends Yet"
               message="Tap + Add Entry or use the Voice button to record your first entry."
               actionLabel="+ Add Entry"
               onActionPress={() => setShowAddModal(true)}
@@ -417,7 +467,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 </Text>
               </View>
 
-              {/* Compact Two-Column Transaction Rows (No icons or colored tags) */}
+              {/* Compact Two-Column Transaction Rows */}
               {group.items.map((tx) => {
                 const isIncome = tx.kind === 'INCOME';
                 return (
@@ -427,7 +477,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                         {tx.merchantOrPayee}
                       </Text>
                       <Text style={styles.txSubtleMeta}>
-                        {tx.paymentVia} • {tx.formattedTime}
+                        {formatTransactionSubtitle(tx, tx.formattedTime)}
                       </Text>
                     </View>
 

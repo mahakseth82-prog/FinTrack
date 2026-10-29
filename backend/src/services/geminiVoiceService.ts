@@ -157,10 +157,10 @@ export function parseHinglishFallback(
     intent = 'EXPENSE';
   }
 
-  // 3. Detect Payment Mode
-  let paymentVia: GeminiExtractedDraft['paymentVia'] = 'UPI';
-  if (/\b(cash|nagad|naqad)\b/.test(lower)) {
-    paymentVia = 'CASH';
+  // 3. Detect Payment Mode (Default to CASH for voice/manual entries unless UPI/Card/Bank mentioned)
+  let paymentVia: GeminiExtractedDraft['paymentVia'] = 'CASH';
+  if (/\b(upi|gpay|phonepe|paytm|bhim|online)\b/.test(lower)) {
+    paymentVia = 'UPI';
   } else if (/\b(bank|neft|rtgs|imps|transfer)\b/.test(lower)) {
     paymentVia = 'BANK_TRANSFER';
   } else if (/\b(card|credit\s*card|debit\s*card)\b/.test(lower)) {

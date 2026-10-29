@@ -132,7 +132,7 @@ export const RootNavigator: React.FC = () => {
                   },
                 ]}
               >
-                Passbook
+                Home
               </Text>
             </TouchableOpacity>
 

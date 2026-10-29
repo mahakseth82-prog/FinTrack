@@ -84,6 +84,8 @@ export interface TransactionDto {
   description: string;
   amountPaise: Paise;
   paymentVia: PaymentChannel;
+  sourceType?: string;
+  isImported?: boolean;
   occurredAt: string;
 }
 

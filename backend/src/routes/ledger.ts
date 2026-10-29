@@ -93,13 +93,7 @@ router.get(
         .from('transactions')
         .select(
           `
-          id,
-          kind,
-          amount_paise,
-          payment_via,
-          merchant_or_payee,
-          description,
-          occurred_at,
+          *,
           categories ( id, name, icon_name, color_hex )
         `
         )
@@ -157,13 +151,23 @@ router.get(
         totalReceivablePaise,
         totalPayablePaise,
         detectedUpiCount: detectedUpiCount || 0,
-        recentTransactions: transactions.map((t) => {
+        recentTransactions: transactions.map((t: Record<string, any>) => {
           const cat = Array.isArray(t.categories) ? t.categories[0] : t.categories;
+          const rawSource = String(t.source_type || '').toUpperCase();
+          const isImported =
+            ['NOTIFICATION', 'SMS', 'EMAIL', 'UPI_NOTIFICATION'].includes(rawSource) ||
+            Boolean(t.upi_reference_id);
+          const sourceType = isImported
+            ? rawSource || 'NOTIFICATION'
+            : rawSource || (t.source_draft_id ? 'VOICE' : 'MANUAL');
+
           return {
             id: t.id,
             kind: t.kind,
             amountPaise: Number(t.amount_paise),
             paymentVia: t.payment_via,
+            sourceType,
+            isImported,
             merchantOrPayee: t.merchant_or_payee || cat?.name || 'Transaction',
             description: t.description || '',
             categoryName: cat?.name || 'General',
