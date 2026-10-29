@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
+import { ensureUserProfileAndWorkspaces } from './auth';
 import {
   rupeesToPaise,
   formatINR,
@@ -40,7 +41,7 @@ async function resolveWorkspaceId(
  */
 router.get('/workspaces', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { data: workspaces, error } = await req.db!
+    let { data: workspaces, error } = await req.db!
       .from('workspaces')
       .select('id, mode, display_name, theme_primary_hex, currency_code')
       .eq('user_id', req.userId!)
@@ -49,6 +50,23 @@ router.get('/workspaces', requireAuth, async (req: AuthenticatedRequest, res: Re
     if (error) {
       res.status(500).json({ error: error.message });
       return;
+    }
+
+    // Auto-provision PERSONAL and BUSINESS workspaces if user has none yet
+    if (!workspaces || workspaces.length === 0) {
+      await ensureUserProfileAndWorkspaces({
+        userId: req.userId!,
+        fullName: req.userFullName || 'FinTrack User',
+        phoneNumber: req.userPhone || '',
+      });
+
+      const retry = await req.db!
+        .from('workspaces')
+        .select('id, mode, display_name, theme_primary_hex, currency_code')
+        .eq('user_id', req.userId!)
+        .order('mode', { ascending: true });
+
+      workspaces = retry.data || [];
     }
 
     res.json({ workspaces: workspaces || [] });

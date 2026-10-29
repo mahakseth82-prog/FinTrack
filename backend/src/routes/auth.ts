@@ -7,7 +7,7 @@ const router = Router();
  * Ensures the user has a `users_profile` row (with both phone_number and full_name)
  * and both `PERSONAL` (#6F4E37) and `BUSINESS` (#3E2723) workspaces in Supabase.
  */
-async function ensureUserProfileAndWorkspaces(params: {
+export async function ensureUserProfileAndWorkspaces(params: {
   userId: string;
   fullName: string;
   phoneNumber: string;
@@ -282,3 +282,4 @@ router.post('/auth/confirm-existing', async (req: Request, res: Response) => {
 });
 
 export default router;
+
