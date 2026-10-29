@@ -1,0 +1,14 @@
+{
+  "name": "fintrack-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FinTrack — AI-Powered Voice Expense Tracker & Digital Udhaar Ledger",
+  "scripts": {
+    "install:backend": "cd backend && npm install",
+    "install:mobile": "cd mobile && npm install",
+    "build:backend": "cd backend && npm run build",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:mobile": "cd mobile && npm start"
+  }
+}
+
