@@ -9,26 +9,25 @@ import {
 import { useFinTrackTheme } from '../context/ThemeContext';
 
 /**
- * 1. Animated Skeleton Placeholder Loader (No Blank Screens during Loading State)
+ * 1. Minimal Skeleton Placeholder Loader
  */
 export const SkeletonLoader: React.FC<{ count?: number; height?: number }> = ({
   count = 3,
-  height = 84,
+  height = 72,
 }) => {
-  const { palette } = useFinTrackTheme();
   const pulseAnim = useRef(new Animated.Value(0.45)).current;
 
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
-          toValue: 0.9,
-          duration: 650,
+          toValue: 0.85,
+          duration: 600,
           useNativeDriver: true,
         }),
         Animated.timing(pulseAnim, {
           toValue: 0.45,
-          duration: 650,
+          duration: 600,
           useNativeDriver: true,
         }),
       ])
@@ -47,8 +46,6 @@ export const SkeletonLoader: React.FC<{ count?: number; height?: number }> = ({
             {
               height,
               opacity: pulseAnim,
-              backgroundColor: palette.surfaceBeige,
-              borderColor: palette.borderLatte,
             },
           ]}
         />
@@ -58,7 +55,7 @@ export const SkeletonLoader: React.FC<{ count?: number; height?: number }> = ({
 };
 
 /**
- * 2. Empty State Component with Illustration Emoji & 1-Tap Action Button
+ * 2. Minimal Empty State Card
  */
 export const EmptyStateCard: React.FC<{
   emoji?: string;
@@ -66,26 +63,13 @@ export const EmptyStateCard: React.FC<{
   message: string;
   actionLabel?: string;
   onActionPress?: () => void;
-}> = ({ emoji = '🎙️', title, message, actionLabel, onActionPress }) => {
+}> = ({ title, message, actionLabel, onActionPress }) => {
   const { palette } = useFinTrackTheme();
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          backgroundColor: palette.surfaceBeige,
-          borderColor: palette.borderLatte,
-        },
-      ]}
-    >
-      <Text style={styles.emoji}>{emoji}</Text>
-      <Text style={[styles.title, { color: palette.textEspresso }]}>
-        {title}
-      </Text>
-      <Text style={[styles.message, { color: palette.textMocha }]}>
-        {message}
-      </Text>
+    <View style={styles.card}>
+      <Text style={styles.title}>{title}</Text>
+      <Text style={styles.message}>{message}</Text>
       {actionLabel && onActionPress && (
         <TouchableOpacity
           onPress={onActionPress}
@@ -94,9 +78,7 @@ export const EmptyStateCard: React.FC<{
             { backgroundColor: palette.primaryBrown },
           ]}
         >
-          <Text style={[styles.actionBtnText, { color: palette.textOnPrimary }]}>
-            {actionLabel}
-          </Text>
+          <Text style={styles.actionBtnText}>{actionLabel}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -104,41 +86,18 @@ export const EmptyStateCard: React.FC<{
 };
 
 /**
- * 3. Error State Component with Clean Retry Button
+ * 3. Minimal Error State Card with Retry Button
  */
 export const ErrorRetryCard: React.FC<{
   errorMessage: string;
   onRetry: () => void;
 }> = ({ errorMessage, onRetry }) => {
-  const { palette } = useFinTrackTheme();
-
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          backgroundColor: palette.giveTerracottaTint,
-          borderColor: palette.giveTerracottaRed,
-        },
-      ]}
-    >
-      <Text style={styles.emoji}>⚠️</Text>
-      <Text style={[styles.title, { color: palette.giveTerracottaRed }]}>
-        Could Not Reach FinTrack Server
-      </Text>
-      <Text style={[styles.message, { color: palette.textEspresso }]}>
-        {errorMessage}
-      </Text>
-      <TouchableOpacity
-        onPress={onRetry}
-        style={[
-          styles.actionBtn,
-          { backgroundColor: palette.giveTerracottaRed },
-        ]}
-      >
-        <Text style={[styles.actionBtnText, { color: palette.textOnPrimary }]}>
-          🔄 Retry Connection
-        </Text>
+    <View style={[styles.card, styles.errorCard]}>
+      <Text style={styles.errorTitle}>Connection Issue</Text>
+      <Text style={styles.message}>{errorMessage}</Text>
+      <TouchableOpacity onPress={onRetry} style={styles.retryBtn}>
+        <Text style={styles.actionBtnText}>Retry Connection</Text>
       </TouchableOpacity>
     </View>
   );
@@ -146,46 +105,64 @@ export const ErrorRetryCard: React.FC<{
 
 const styles = StyleSheet.create({
   skeletonWrap: {
-    gap: 12,
-    marginVertical: 6,
+    gap: 10,
+    marginVertical: 4,
   },
   skeletonBar: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   card: {
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 10,
+    padding: 18,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 8,
   },
-  emoji: {
-    fontSize: 34,
-    marginBottom: 8,
+  errorCard: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   title: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  errorTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#B91C1C',
     textAlign: 'center',
   },
   message: {
     fontSize: 12,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 6,
+    marginTop: 4,
     lineHeight: 18,
   },
   actionBtn: {
-    marginTop: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 10,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+  },
+  retryBtn: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#B91C1C',
   },
   actionBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
-

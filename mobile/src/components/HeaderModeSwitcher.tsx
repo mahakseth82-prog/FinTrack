@@ -13,69 +13,25 @@ export const HeaderModeSwitcher: React.FC = () => {
   const { user, signOut } = useAuth();
 
   return (
-    <View
-      style={[
-        styles.headerContainer,
-        {
-          backgroundColor: palette.surfaceBeige,
-          borderBottomColor: palette.borderLatte,
-        },
-      ]}
-    >
-      {/* Top Row: Brand Title + User Profile Pill */}
+    <View style={styles.headerContainer}>
+      {/* Top Row: Clean Brand Title + User Info */}
       <View style={styles.brandRow}>
         <View>
-          <View style={styles.titleRow}>
-            <Text style={[styles.brandName, { color: palette.primaryBrown }]}>
-              FinTrack
-            </Text>
-            <View
-              style={[
-                styles.workspaceBadge,
-                { backgroundColor: palette.primaryBrown },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.workspaceBadgeText,
-                  { color: palette.textOnPrimary },
-                ]}
-              >
-                {mode === 'PERSONAL' ? 'PERSONAL' : 'BUSINESS'}
-              </Text>
-            </View>
-          </View>
-          <Text style={[styles.subtitle, { color: palette.textMocha }]}>
-            {palette.modeTitle} • {user?.fullName || 'Guest'}
+          <Text style={[styles.brandName, { color: palette.primaryBrown }]}>
+            FinTrack
+          </Text>
+          <Text style={styles.subtitle}>
+            {palette.modeTitle} • {user?.fullName || 'User'}
           </Text>
         </View>
 
-        <TouchableOpacity
-          onPress={signOut}
-          style={[
-            styles.profileBtn,
-            {
-              backgroundColor: palette.backgroundCream,
-              borderColor: palette.borderLatte,
-            },
-          ]}
-        >
-          <Text style={[styles.profileBtnText, { color: palette.textEspresso }]}>
-            Switch User
-          </Text>
+        <TouchableOpacity onPress={signOut} style={styles.profileBtn}>
+          <Text style={styles.profileBtnText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Mode Switcher Pill: [ 🏠 Personal | 🏪 Business ] */}
-      <View
-        style={[
-          styles.switcherTrack,
-          {
-            backgroundColor: palette.pillInactiveBg,
-            borderColor: palette.borderLatte,
-          },
-        ]}
-      >
+      {/* Clean Minimal Mode Switcher: [ Personal | Business ] */}
+      <View style={styles.switcherTrack}>
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => setMode('PERSONAL')}
@@ -90,14 +46,11 @@ export const HeaderModeSwitcher: React.FC = () => {
             style={[
               styles.switcherText,
               {
-                color:
-                  mode === 'PERSONAL'
-                    ? palette.textOnPrimary
-                    : palette.textEspresso,
+                color: mode === 'PERSONAL' ? '#FFFFFF' : '#475569',
               },
             ]}
           >
-            🏠 Personal (Ghar)
+            Personal
           </Text>
         </TouchableOpacity>
 
@@ -115,14 +68,11 @@ export const HeaderModeSwitcher: React.FC = () => {
             style={[
               styles.switcherText,
               {
-                color:
-                  mode === 'BUSINESS'
-                    ? palette.textOnPrimary
-                    : palette.textEspresso,
+                color: mode === 'BUSINESS' ? '#FFFFFF' : '#475569',
               },
             ]}
           >
-            🏪 Business (Vyapaar)
+            Business
           </Text>
         </TouchableOpacity>
       </View>
@@ -133,9 +83,11 @@ export const HeaderModeSwitcher: React.FC = () => {
 const styles = StyleSheet.create({
   headerContainer: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   brandRow: {
     flexDirection: 'row',
@@ -143,57 +95,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   brandName: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  workspaceBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  workspaceBadgeText: {
-    fontSize: 10,
+    fontSize: 20,
     fontWeight: '700',
-    letterSpacing: 0.6,
+    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 12,
+    color: '#64748B',
     marginTop: 2,
-    fontWeight: '500',
   },
   profileBtn: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
   },
   profileBtnText: {
     fontSize: 11,
     fontWeight: '600',
+    color: '#475569',
   },
   switcherTrack: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 4,
-    borderWidth: 1,
+    borderRadius: 8,
+    padding: 3,
+    backgroundColor: '#F1F5F9',
   },
   switcherTab: {
     flex: 1,
-    paddingVertical: 9,
-    borderRadius: 9,
+    paddingVertical: 7,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   switcherText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
   },
 });
-

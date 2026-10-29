@@ -31,20 +31,18 @@ export const AuthScreen: React.FC = () => {
     setErrorMsg(null);
 
     if (!email.trim() || !password.trim()) {
-      setErrorMsg('Kripya apna Gmail address aur Password dono dalein.');
+      setErrorMsg('Please enter both your Gmail address and Password.');
       return;
     }
 
     const digitsOnlyPhone = phoneNumber.replace(/\D/g, '');
     if (digitsOnlyPhone.length < 10) {
-      setErrorMsg(
-        'Kripya apna valid 10-digit Contact Number (+91...) dalein.'
-      );
+      setErrorMsg('Please enter a valid 10-digit Contact Number (+91...).');
       return;
     }
 
     if (password.length < 6) {
-      setErrorMsg('Password kam se kam 6 characters ka hona chahiye.');
+      setErrorMsg('Password must be at least 6 characters.');
       return;
     }
 
@@ -67,349 +65,249 @@ export const AuthScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: palette.backgroundCream },
-      ]}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollInner}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View
-          style={[
-            styles.logoBadge,
-            { backgroundColor: palette.primaryBrown },
-          ]}
+    <SafeAreaView style={styles.outerViewport}>
+      <View style={styles.mobileFrame}>
+        <ScrollView
+          contentContainerStyle={styles.scrollInner}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={[styles.logoEmoji, { color: palette.textOnPrimary }]}>
-            🎙️
+          <Text style={[styles.title, { color: palette.primaryBrown }]}>
+            FinTrack
           </Text>
-        </View>
+          <Text style={styles.subtitle}>
+            Personal Passbook & Digital Udhaar Khata
+          </Text>
 
-        <Text style={[styles.title, { color: palette.textEspresso }]}>
-          FinTrack
-        </Text>
-        <Text style={[styles.subtitle, { color: palette.textMocha }]}>
-          AI-Powered Voice Expense Tracker & Digital Udhaar Khata
-        </Text>
+          {!isSupabaseReady && (
+            <View style={styles.checkpointBanner}>
+              <Text style={styles.checkpointTitle}>
+                Credential Checkpoint Required
+              </Text>
+              <Text style={styles.checkpointBody}>
+                Please add EXPO_PUBLIC_SUPABASE_URL and
+                EXPO_PUBLIC_SUPABASE_ANON_KEY in mobile/.env.
+              </Text>
+            </View>
+          )}
 
-        {!isSupabaseReady && (
-          <View
-            style={[
-              styles.checkpointBanner,
-              {
-                backgroundColor: palette.giveTerracottaTint,
-                borderColor: palette.giveTerracottaRed,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.checkpointTitle,
-                { color: palette.giveTerracottaRed },
-              ]}
-            >
-              🛑 Credential Checkpoint Required
-            </Text>
-            <Text
-              style={[
-                styles.checkpointBody,
-                { color: palette.textEspresso },
-              ]}
-            >
-              Please add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY
-              in mobile/.env to connect your live Supabase database.
-            </Text>
-          </View>
-        )}
-
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: palette.surfaceBeige,
-              borderColor: palette.borderLatte,
-            },
-          ]}
-        >
-          {/* Mode Switch Tabs: Create Account vs Sign In */}
-          <View
-            style={[
-              styles.modeTabsRow,
-              {
-                backgroundColor: palette.pillInactiveBg,
-                borderColor: palette.borderLatte,
-              },
-            ]}
-          >
-            <TouchableOpacity
-              onPress={() => {
-                setIsSignUp(true);
-                setErrorMsg(null);
-              }}
-              style={[
-                styles.modeTab,
-                isSignUp && { backgroundColor: palette.primaryBrown },
-              ]}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '800',
-                  color: isSignUp
-                    ? palette.textOnPrimary
-                    : palette.textEspresso,
+          <View style={styles.card}>
+            <View style={styles.modeTabsRow}>
+              <TouchableOpacity
+                onPress={() => {
+                  setIsSignUp(true);
+                  setErrorMsg(null);
                 }}
-              >
-                ✨ Create Account
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => {
-                setIsSignUp(false);
-                setErrorMsg(null);
-              }}
-              style={[
-                styles.modeTab,
-                !isSignUp && { backgroundColor: palette.primaryBrown },
-              ]}
-            >
-              <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '800',
-                  color: !isSignUp
-                    ? palette.textOnPrimary
-                    : palette.textEspresso,
-                }}
-              >
-                🔑 Sign In
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {isSignUp && (
-            <>
-              <Text style={[styles.label, { color: palette.textEspresso }]}>
-                👤 Aapka Naam (Full Name)
-              </Text>
-              <TextInput
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="e.g. Aarav Verma"
-                placeholderTextColor={palette.textMocha}
                 style={[
-                  styles.input,
-                  {
-                    backgroundColor: palette.surfaceElevated,
-                    borderColor: palette.borderLatte,
-                    color: palette.textEspresso,
-                  },
+                  styles.modeTab,
+                  isSignUp && { backgroundColor: palette.primaryBrown },
                 ]}
-              />
-            </>
-          )}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '600',
+                    color: isSignUp ? '#FFFFFF' : '#475569',
+                  }}
+                >
+                  Create Account
+                </Text>
+              </TouchableOpacity>
 
-          {/* Contact Number (Required for both Create Account & WhatsApp Reminders) */}
-          <Text style={[styles.label, { color: palette.textEspresso }]}>
-            📱 Contact Number (WhatsApp / Mobile No.)
-          </Text>
-          <TextInput
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            placeholder="+91 9876543210"
-            placeholderTextColor={palette.textMocha}
-            keyboardType="phone-pad"
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceElevated,
-                borderColor: palette.borderLatte,
-                color: palette.textEspresso,
-              },
-            ]}
-          />
+              <TouchableOpacity
+                onPress={() => {
+                  setIsSignUp(false);
+                  setErrorMsg(null);
+                }}
+                style={[
+                  styles.modeTab,
+                  !isSignUp && { backgroundColor: palette.primaryBrown },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '600',
+                    color: !isSignUp ? '#FFFFFF' : '#475569',
+                  }}
+                >
+                  Sign In
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-          {/* Gmail Address */}
-          <Text style={[styles.label, { color: palette.textEspresso }]}>
-            📧 Gmail Address
-          </Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="yourname@gmail.com"
-            placeholderTextColor={palette.textMocha}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceElevated,
-                borderColor: palette.borderLatte,
-                color: palette.textEspresso,
-              },
-            ]}
-          />
+            {isSignUp && (
+              <>
+                <Text style={styles.label}>Full Name</Text>
+                <TextInput
+                  value={fullName}
+                  onChangeText={setFullName}
+                  placeholder="Enter your name"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.input}
+                />
+              </>
+            )}
 
-          <Text style={[styles.label, { color: palette.textEspresso }]}>
-            🔒 Password (Min 6 characters)
-          </Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="••••••••"
-            placeholderTextColor={palette.textMocha}
-            secureTextEntry
-            style={[
-              styles.input,
-              {
-                backgroundColor: palette.surfaceElevated,
-                borderColor: palette.borderLatte,
-                color: palette.textEspresso,
-              },
-            ]}
-          />
+            <Text style={styles.label}>Contact Number</Text>
+            <TextInput
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              placeholder="+91 9876543210"
+              placeholderTextColor="#94A3B8"
+              keyboardType="phone-pad"
+              style={styles.input}
+            />
 
-          <Text style={[styles.helperNote, { color: palette.receiveSageGreen }]}>
-            ✅ Instant Auto-Verification: No email link click needed! Your
-            Contact No. & Gmail will be verified immediately.
-          </Text>
+            <Text style={styles.label}>Gmail Address</Text>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="yourname@gmail.com"
+              placeholderTextColor="#94A3B8"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+            />
 
-          {errorMsg && (
-            <Text
-              style={[styles.errorText, { color: palette.giveTerracottaRed }]}
+            <Text style={styles.label}>Password</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Minimum 6 characters"
+              placeholderTextColor="#94A3B8"
+              secureTextEntry
+              style={styles.input}
+            />
+
+            {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+
+            <TouchableOpacity
+              onPress={handleSubmit}
+              disabled={isLoading}
+              style={[
+                styles.primaryBtn,
+                { backgroundColor: palette.primaryBrown },
+              ]}
             >
-              ⚠️ {errorMsg}
-            </Text>
-          )}
-
-          <TouchableOpacity
-            onPress={handleSubmit}
-            disabled={isLoading}
-            style={[
-              styles.primaryBtn,
-              { backgroundColor: palette.primaryBrown },
-            ]}
-          >
-            <Text
-              style={[styles.primaryBtnText, { color: palette.textOnPrimary }]}
-            >
-              {isLoading
-                ? 'Verifying Contact & Gmail...'
-                : isSignUp
-                  ? 'Create FinTrack Account →'
-                  : 'Sign In to FinTrack →'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+              <Text style={styles.primaryBtnText}>
+                {isLoading
+                  ? 'Verifying...'
+                  : isSignUp
+                    ? 'Create Account'
+                    : 'Sign In'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  outerViewport: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+  },
+  mobileFrame: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: '#FFFFFF',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#E2E8F0',
   },
   scrollInner: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 28,
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  logoEmoji: {
-    fontSize: 30,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
     marginTop: 4,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   checkpointBanner: {
-    width: '100%',
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
     marginBottom: 14,
   },
   checkpointTitle: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
   },
   checkpointBody: {
     fontSize: 11,
-    marginTop: 4,
-    lineHeight: 16,
+    color: '#475569',
+    marginTop: 2,
   },
   card: {
     width: '100%',
-    maxWidth: 440,
-    padding: 20,
-    borderRadius: 18,
+    padding: 18,
+    borderRadius: 10,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   modeTabsRow: {
     flexDirection: 'row',
-    borderRadius: 10,
-    padding: 4,
-    borderWidth: 1,
-    marginBottom: 10,
+    borderRadius: 8,
+    padding: 3,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 12,
   },
   modeTab: {
     flex: 1,
-    paddingVertical: 9,
-    borderRadius: 8,
+    paddingVertical: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   label: {
     fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 5,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 4,
     marginTop: 10,
   },
   input: {
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 14,
-  },
-  helperNote: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginTop: 10,
-    lineHeight: 16,
+    color: '#0F172A',
   },
   errorText: {
     fontSize: 12,
-    marginTop: 8,
-    fontWeight: '700',
+    color: '#B91C1C',
+    marginTop: 10,
+    fontWeight: '600',
   },
   primaryBtn: {
-    marginTop: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
+    marginTop: 18,
+    paddingVertical: 12,
+    borderRadius: 8,
     alignItems: 'center',
   },
   primaryBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

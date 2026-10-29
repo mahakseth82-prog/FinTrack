@@ -7,7 +7,6 @@ import {
   TextInput,
   Modal,
   StyleSheet,
-  Linking,
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
@@ -42,7 +41,6 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
 }) => {
   const { palette, activeWorkspaceId } = useFinTrackTheme();
 
-  // Live TanStack React Query Hooks (Zero hardcoded dummy data)
   const ledgerQuery = useUdhaarLedger(activeWorkspaceId);
   const dueRemindersQuery = useDueReminders(activeWorkspaceId);
   const createObligationMutation = useCreateObligation(activeWorkspaceId);
@@ -60,16 +58,14 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
   );
   const [note, setNote] = useState('');
 
-  // 1. Loading State -> Animated Skeleton Loader
   if (ledgerQuery.isLoading) {
     return (
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SkeletonLoader count={4} height={115} />
+        <SkeletonLoader count={4} height={80} />
       </ScrollView>
     );
   }
 
-  // 2. Error State -> Clean Retry Card
   if (ledgerQuery.isError) {
     const errMsg =
       ledgerQuery.error instanceof Error
@@ -96,7 +92,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     return true;
   });
 
-  const handleDirectWhatsAppRemind = (contact: UdhaarLedgerItemDto) => {
+  const handleOpenRemind = (contact: UdhaarLedgerItemDto) => {
     setReminderTarget({
       obligationId: contact.obligationId,
       contactId: contact.contactId,
@@ -132,126 +128,50 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* 1. Business Header Banner (Deep Mahogany #3E2723) */}
-      <View
-        style={[
-          styles.mahoganyBanner,
-          { backgroundColor: palette.primaryBrown },
-        ]}
-      >
-        <View style={styles.bannerTopRow}>
-          <View>
-            <Text style={[styles.bannerTag, { color: palette.accentWarm }]}>
-              🏪 DIGITAL UDHAAR LEDGER • VYAPAAR KHATA
-            </Text>
-            <Text style={[styles.bannerTitle, { color: palette.textOnPrimary }]}>
-              Customer & Supplier Hisaab
-            </Text>
-          </View>
+      {/* 1. Clean Udhaar Ledger Summary Card */}
+      <View style={styles.summaryCard}>
+        <View style={styles.summaryTopRow}>
+          <Text style={styles.summaryTitle}>Udhaar Khata Summary</Text>
           <TouchableOpacity
             onPress={() => setShowNewUdhaarModal(true)}
             style={[
-              styles.addCustomerBtn,
-              { backgroundColor: palette.accentWarm },
+              styles.addBtn,
+              { backgroundColor: palette.primaryBrown },
             ]}
           >
-            <Text
-              style={[styles.addCustomerBtnText, { color: palette.textOnPrimary }]}
-            >
-              + Naya Udhaar
-            </Text>
+            <Text style={styles.addBtnText}>+ New Udhaar</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Top Summary Cards: You Will Get vs You Will Give (From Backend) */}
-        <View style={styles.summaryCardsRow}>
-          <View
-            style={[
-              styles.summaryBox,
-              {
-                backgroundColor: palette.receiveSageTint,
-                borderColor: palette.receiveSageGreen,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.summaryBoxLabel,
-                { color: palette.receiveSageGreen },
-              ]}
-            >
-              🟢 You Will Get (Lena Hai)
-            </Text>
-            <Text
-              style={[
-                styles.summaryBoxAmount,
-                { color: palette.receiveSageGreen },
-              ]}
-            >
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCol}>
+            <Text style={styles.metricLabel}>You Will Get</Text>
+            <Text style={styles.willGetValue}>
               {formatINR(summary?.totalWillGetPaise || 0)}
             </Text>
-            <Text style={[styles.summaryBoxSub, { color: palette.textMocha }]}>
-              Market / Customers Baki
-            </Text>
           </View>
 
-          <View
-            style={[
-              styles.summaryBox,
-              {
-                backgroundColor: palette.giveTerracottaTint,
-                borderColor: palette.giveTerracottaRed,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.summaryBoxLabel,
-                { color: palette.giveTerracottaRed },
-              ]}
-            >
-              🔴 You Will Give (Dena Hai)
-            </Text>
-            <Text
-              style={[
-                styles.summaryBoxAmount,
-                { color: palette.giveTerracottaRed },
-              ]}
-            >
+          <View style={styles.metricDivider} />
+
+          <View style={styles.metricCol}>
+            <Text style={styles.metricLabel}>You Will Give</Text>
+            <Text style={styles.willGiveValue}>
               {formatINR(summary?.totalWillGivePaise || 0)}
             </Text>
-            <Text style={[styles.summaryBoxSub, { color: palette.textMocha }]}>
-              Suppliers / Wholesalers Baki
-            </Text>
           </View>
         </View>
+
+        {(dueRemindersQuery.data?.dueSoonCount || 0) > 0 && (
+          <View style={styles.dueStrip}>
+            <Text style={styles.dueStripText}>
+              {dueRemindersQuery.data?.dueSoonCount} account(s) due within 24h
+              or overdue
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* 1B. 24-Hour Due Alert Banner (From /api/v1/reminders/due-soon) */}
-      {(dueRemindersQuery.data?.dueSoonCount || 0) > 0 && (
-        <View
-          style={[
-            styles.dueAlertBanner,
-            {
-              backgroundColor: palette.warningAmberTint,
-              borderColor: palette.accentWarm,
-            },
-          ]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[styles.dueAlertTitle, { color: palette.textEspresso }]}
-            >
-              ⏰ {dueRemindersQuery.data?.dueSoonCount} Udhaar Due Within 24 Hours / Overdue
-            </Text>
-            <Text style={[styles.dueAlertSub, { color: palette.textMocha }]}>
-              Tap [ 💬 Remind ] below to send a polite Hindi/Hinglish/English WhatsApp message.
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* 2. Quick Filter Chips */}
+      {/* 2. Minimal Filter Bar */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -259,11 +179,11 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
       >
         {(
           [
-            { id: 'ALL', label: 'All Khata' },
-            { id: 'OVERDUE', label: '🚨 Overdue' },
-            { id: 'DUE_TODAY', label: '⏰ Due Today' },
-            { id: 'CUSTOMERS', label: '👥 Customers' },
-            { id: 'SUPPLIERS', label: '🚛 Suppliers' },
+            { id: 'ALL', label: 'All' },
+            { id: 'OVERDUE', label: 'Overdue' },
+            { id: 'DUE_TODAY', label: 'Due Today' },
+            { id: 'CUSTOMERS', label: 'Customers' },
+            { id: 'SUPPLIERS', label: 'Suppliers' },
           ] as { id: FilterChip; label: string }[]
         ).map((chip) => {
           const isSelected = activeFilter === chip.id;
@@ -273,23 +193,17 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               onPress={() => setActiveFilter(chip.id)}
               style={[
                 styles.filterChip,
-                {
-                  backgroundColor: isSelected
-                    ? palette.primaryBrown
-                    : palette.surfaceBeige,
-                  borderColor: isSelected
-                    ? palette.primaryBrown
-                    : palette.borderLatte,
+                isSelected && {
+                  backgroundColor: palette.primaryBrown,
+                  borderColor: palette.primaryBrown,
                 },
               ]}
             >
               <Text
                 style={{
                   fontSize: 12,
-                  fontWeight: '700',
-                  color: isSelected
-                    ? palette.textOnPrimary
-                    : palette.textEspresso,
+                  fontWeight: '600',
+                  color: isSelected ? '#FFFFFF' : '#475569',
                 }}
               >
                 {chip.label}
@@ -299,204 +213,59 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         })}
       </ScrollView>
 
-      {/* 3. Customer & Supplier Ledger List (With Empty State) */}
-      <View style={styles.listContainer}>
+      {/* 3. Streamlined Passbook Account Rows */}
+      <View style={styles.ledgerContainer}>
+        <View style={styles.ledgerHeaderBar}>
+          <Text style={styles.ledgerHeaderLeft}>Account / Due Date</Text>
+          <Text style={styles.ledgerHeaderRight}>Remaining Balance</Text>
+        </View>
+
         {filteredContacts.length === 0 ? (
-          <EmptyStateCard
-            emoji="📒"
-            title="No Udhaar Records Yet"
-            message="No udhaar records match this filter. Tap below or use the mic to record your first customer or supplier entry!"
-            actionLabel="+ Record First Udhaar"
-            onActionPress={() => setShowNewUdhaarModal(true)}
-          />
+          <View style={{ padding: 16 }}>
+            <EmptyStateCard
+              title="No Udhaar Accounts"
+              message="No accounts match this filter. Add your first customer or supplier entry."
+              actionLabel="+ New Udhaar"
+              onActionPress={() => setShowNewUdhaarModal(true)}
+            />
+          </View>
         ) : (
           filteredContacts.map((contact) => {
             const isReceivable = contact.direction === 'RECEIVABLE';
-            const badgeColor =
-              contact.dueTag === 'OVERDUE'
-                ? palette.giveTerracottaRed
-                : contact.dueTag === 'DUE_TODAY'
-                  ? palette.warningAmber
-                  : palette.primaryBrown;
-
             return (
               <TouchableOpacity
                 key={contact.obligationId}
-                activeOpacity={0.9}
+                activeOpacity={0.85}
                 onPress={() => onOpenContactDetail(contact.contactId)}
-                style={[
-                  styles.customerCard,
-                  {
-                    backgroundColor: palette.surfaceBeige,
-                    borderColor: palette.borderLatte,
-                  },
-                ]}
+                style={styles.accountRow}
               >
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.nameSection}>
-                    <View
-                      style={[
-                        styles.avatarCircle,
-                        { backgroundColor: palette.primaryBrown },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.avatarInitial,
-                          { color: palette.textOnPrimary },
-                        ]}
-                      >
-                        {contact.displayName.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          styles.customerName,
-                          { color: palette.textEspresso },
-                        ]}
-                      >
-                        {contact.displayName}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.customerNote,
-                          { color: palette.textMocha },
-                        ]}
-                      >
-                        {contact.titleOrNote}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text
-                      style={[
-                        styles.directionMiniTag,
-                        {
-                          color: isReceivable
-                            ? palette.receiveSageGreen
-                            : palette.giveTerracottaRed,
-                        },
-                      ]}
-                    >
-                      {isReceivable ? 'YOU WILL GET' : 'YOU WILL GIVE'}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.remainingAmount,
-                        {
-                          color: isReceivable
-                            ? palette.receiveSageGreen
-                            : palette.giveTerracottaRed,
-                        },
-                      ]}
-                    >
-                      {formatINR(contact.remainingPaise)}
-                    </Text>
-                  </View>
-                </View>
-
-                <View
-                  style={[
-                    styles.breakdownBar,
-                    {
-                      backgroundColor: palette.surfaceElevated,
-                      borderColor: palette.borderLatte,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[styles.breakdownText, { color: palette.textMocha }]}
-                  >
-                    Original:{' '}
-                    <Text
-                      style={{ fontWeight: '700', color: palette.textEspresso }}
-                    >
-                      {formatINR(contact.principalPaise)}
-                    </Text>
+                <View style={styles.accountLeft}>
+                  <Text style={styles.accountName} numberOfLines={1}>
+                    {contact.displayName}
                   </Text>
-                  <Text
-                    style={[styles.breakdownText, { color: palette.textMocha }]}
-                  >
-                    Paid:{' '}
-                    <Text
-                      style={{
-                        fontWeight: '700',
-                        color: palette.receiveSageGreen,
-                      }}
-                    >
-                      {formatINR(contact.repaidPaise)}
-                    </Text>
-                  </Text>
-                  <Text
-                    style={[styles.breakdownText, { color: palette.textMocha }]}
-                  >
-                    Remaining:{' '}
-                    <Text
-                      style={{
-                        fontWeight: '800',
-                        color: palette.giveTerracottaRed,
-                      }}
-                    >
-                      {formatINR(contact.remainingPaise)}
-                    </Text>
+                  <Text style={styles.accountSubtleMeta} numberOfLines={1}>
+                    Due {contact.dueDate} • Paid {formatINR(contact.repaidPaise)}{' '}
+                    of {formatINR(contact.principalPaise)}
                   </Text>
                 </View>
 
-                <View style={styles.cardFooterRow}>
-                  <View style={styles.badgeGroup}>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        { backgroundColor: badgeColor },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusBadgeText,
-                          { color: palette.textOnPrimary },
-                        ]}
-                      >
-                        {contact.status === 'SETTLED'
-                          ? '✅ SETTLED'
-                          : contact.dueTag === 'OVERDUE'
-                            ? `🚨 OVERDUE (${contact.dueDate})`
-                            : contact.dueTag === 'DUE_TODAY'
-                              ? `⏰ DUE TODAY (${contact.dueDate})`
-                              : `📅 Due: ${contact.dueDate}`}
-                      </Text>
-                    </View>
-
-                    <Text
-                      style={[
-                        styles.partialTagText,
-                        { color: palette.textMocha },
-                      ]}
-                    >
-                      {contact.status}
-                    </Text>
-                  </View>
+                <View style={styles.accountRight}>
+                  <Text
+                    style={[
+                      styles.accountAmount,
+                      { color: isReceivable ? '#15803D' : '#B91C1C' },
+                    ]}
+                  >
+                    {isReceivable ? '+ ' : '- '}
+                    {formatINR(contact.remainingPaise)}
+                  </Text>
 
                   {isReceivable && contact.remainingPaise > 0 && (
                     <TouchableOpacity
-                      onPress={() => handleDirectWhatsAppRemind(contact)}
-                      style={[
-                        styles.remindButton,
-                        {
-                          backgroundColor: palette.receiveSageTint,
-                          borderColor: palette.receiveSageGreen,
-                        },
-                      ]}
+                      onPress={() => handleOpenRemind(contact)}
+                      style={styles.remindLinkBtn}
                     >
-                      <Text
-                        style={[
-                          styles.remindButtonText,
-                          { color: palette.receiveSageGreen },
-                        ]}
-                      >
-                        💬 Remind
-                      </Text>
+                      <Text style={styles.remindLinkText}>Remind</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -506,47 +275,31 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         )}
       </View>
 
-      {/* Modal: Create New Udhaar Obligation via React Query Mutation */}
-      <Modal visible={showNewUdhaarModal} transparent animationType="slide">
+      {/* Clean Modal: Create New Udhaar */}
+      <Modal visible={showNewUdhaarModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: palette.surfaceBeige,
-                borderColor: palette.borderLatte,
-              },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: palette.textEspresso }]}>
-              Naya Customer / Supplier Udhaar
-            </Text>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>New Udhaar Entry</Text>
 
             <View style={styles.dirRow}>
               <TouchableOpacity
                 onPress={() => setDirection('RECEIVABLE')}
                 style={[
                   styles.dirBtn,
-                  {
-                    backgroundColor:
-                      direction === 'RECEIVABLE'
-                        ? palette.receiveSageGreen
-                        : palette.surfaceElevated,
-                    borderColor: palette.borderLatte,
+                  direction === 'RECEIVABLE' && {
+                    backgroundColor: '#15803D',
+                    borderColor: '#15803D',
                   },
                 ]}
               >
                 <Text
                   style={{
-                    fontWeight: '800',
+                    fontWeight: '600',
                     fontSize: 12,
-                    color:
-                      direction === 'RECEIVABLE'
-                        ? palette.textOnPrimary
-                        : palette.textEspresso,
+                    color: direction === 'RECEIVABLE' ? '#FFFFFF' : '#0F172A',
                   }}
                 >
-                  🔴 Udhaar Diya (Will Get)
+                  You Gave (Will Get)
                 </Text>
               </TouchableOpacity>
 
@@ -554,130 +307,77 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 onPress={() => setDirection('PAYABLE')}
                 style={[
                   styles.dirBtn,
-                  {
-                    backgroundColor:
-                      direction === 'PAYABLE'
-                        ? palette.giveTerracottaRed
-                        : palette.surfaceElevated,
-                    borderColor: palette.borderLatte,
+                  direction === 'PAYABLE' && {
+                    backgroundColor: '#B91C1C',
+                    borderColor: '#B91C1C',
                   },
                 ]}
               >
                 <Text
                   style={{
-                    fontWeight: '800',
+                    fontWeight: '600',
                     fontSize: 12,
-                    color:
-                      direction === 'PAYABLE'
-                        ? palette.textOnPrimary
-                        : palette.textEspresso,
+                    color: direction === 'PAYABLE' ? '#FFFFFF' : '#0F172A',
                   }}
                 >
-                  🟢 Udhaar Liya (Will Give)
+                  You Got (Will Give)
                 </Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Customer / Supplier Name
-            </Text>
+            <Text style={styles.inputLabel}>Name</Text>
             <TextInput
               value={contactName}
               onChangeText={setContactName}
-              placeholder="Enter customer or supplier name"
-              placeholderTextColor={palette.textMocha}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.borderLatte,
-                  color: palette.textEspresso,
-                },
-              ]}
+              placeholder="Customer or Supplier name"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
             />
 
-            <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Phone Number (for WhatsApp Reminder)
-            </Text>
+            <Text style={styles.inputLabel}>Phone Number</Text>
             <TextInput
               value={phoneNumber}
               onChangeText={setPhoneNumber}
               placeholder="+91..."
               keyboardType="phone-pad"
-              placeholderTextColor={palette.textMocha}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.borderLatte,
-                  color: palette.textEspresso,
-                },
-              ]}
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
             />
 
-            <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Amount (in ₹ Rupees)
-            </Text>
+            <Text style={styles.inputLabel}>Amount (₹)</Text>
             <TextInput
               value={principalRupees}
               onChangeText={setPrincipalRupees}
-              placeholder="Enter amount"
+              placeholder="0.00"
               keyboardType="numeric"
-              placeholderTextColor={palette.textMocha}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.borderLatte,
-                  color: palette.textEspresso,
-                },
-              ]}
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
             />
 
-            <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Due Date (YYYY-MM-DD) & Note
-            </Text>
+            <Text style={styles.inputLabel}>Due Date (YYYY-MM-DD)</Text>
             <TextInput
               value={dueDate}
               onChangeText={setDueDate}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={palette.textMocha}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.borderLatte,
-                  color: palette.textEspresso,
-                  marginBottom: 8,
-                },
-              ]}
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
             />
+
+            <Text style={styles.inputLabel}>Note</Text>
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="Items or bill note"
-              placeholderTextColor={palette.textMocha}
-              style={[
-                styles.input,
-                {
-                  backgroundColor: palette.surfaceElevated,
-                  borderColor: palette.borderLatte,
-                  color: palette.textEspresso,
-                },
-              ]}
+              placeholder="Bill or item description"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
             />
 
             <View style={styles.modalActions}>
               <TouchableOpacity
                 onPress={() => setShowNewUdhaarModal(false)}
-                style={[
-                  styles.cancelBtn,
-                  { borderColor: palette.borderLatte },
-                ]}
+                style={styles.cancelBtn}
               >
-                <Text style={{ color: palette.textMocha, fontWeight: '700' }}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleCreateUdhaar}
@@ -687,12 +387,10 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                   { backgroundColor: palette.primaryBrown },
                 ]}
               >
-                <Text
-                  style={{ color: palette.textOnPrimary, fontWeight: '800' }}
-                >
+                <Text style={styles.saveBtnText}>
                   {createObligationMutation.isPending
                     ? 'Saving...'
-                    : '✅ Confirm & Save'}
+                    : 'Confirm & Save'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -700,7 +398,6 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         </View>
       </Modal>
 
-      {/* Polite Reminder Modal (Hinglish / Hindi / English) */}
       <PoliteReminderModal
         visible={reminderTarget !== null}
         target={reminderTarget}
@@ -712,237 +409,236 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
 
 const styles = StyleSheet.create({
   scrollContent: {
-    padding: 16,
-    paddingBottom: 110,
-    gap: 14,
+    padding: 14,
+    paddingBottom: 90,
+    gap: 12,
   },
-  mahoganyBanner: {
-    borderRadius: 18,
-    padding: 16,
-    gap: 14,
+  summaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  bannerTopRow: {
+  summaryTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
   },
-  bannerTag: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.7,
+  summaryTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
   },
-  bannerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  addCustomerBtn: {
+  addBtn: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
   },
-  addCustomerBtnText: {
+  addBtnText: {
     fontSize: 12,
-    fontWeight: '800',
-  },
-  summaryCardsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  summaryBox: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-  },
-  summaryBoxLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  summaryBoxAmount: {
-    fontSize: 20,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  summaryBoxSub: {
-    fontSize: 10,
-    marginTop: 2,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
-  dueAlertBanner: {
+  metricsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
   },
-  dueAlertTitle: {
-    fontSize: 13,
-    fontWeight: '800',
+  metricCol: {
+    flex: 1,
   },
-  dueAlertSub: {
+  metricLabel: {
     fontSize: 11,
-    marginTop: 2,
+    color: '#64748B',
+    marginBottom: 3,
+  },
+  willGetValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  willGiveValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  metricDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 14,
+  },
+  dueStrip: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  dueStripText: {
+    fontSize: 12,
+    color: '#B91C1C',
+    fontWeight: '500',
   },
   filterRow: {
     gap: 8,
-    paddingVertical: 2,
   },
   filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  listContainer: {
-    gap: 12,
-  },
-  customerCard: {
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    gap: 10,
-  },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  nameSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  avatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitial: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  customerName: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  customerNote: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  directionMiniTag: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  remainingAmount: {
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  breakdownBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  breakdownText: {
-    fontSize: 11,
-  },
-  cardFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  badgeGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  partialTagText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  remindButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
   },
-  remindButtonText: {
+  ledgerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  ledgerHeaderBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  ledgerHeaderLeft: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
+    color: '#475569',
+  },
+  ledgerHeaderRight: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  accountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  accountLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  accountName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  accountSubtleMeta: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  accountRight: {
+    alignItems: 'flex-end',
+  },
+  accountAmount: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  remindLinkBtn: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#F1F5F9',
+  },
+  remindLinkText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#334155',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(44, 30, 22, 0.55)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
   modalCard: {
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    padding: 20,
-    borderTopWidth: 1,
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
     marginBottom: 12,
   },
   dirRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     marginBottom: 8,
   },
   dirBtn: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
   },
   inputLabel: {
     fontSize: 12,
-    fontWeight: '700',
-    marginTop: 10,
-    marginBottom: 5,
+    fontWeight: '600',
+    color: '#334155',
+    marginTop: 8,
+    marginBottom: 4,
   },
   input: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     fontSize: 14,
+    color: '#0F172A',
   },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 18,
+    marginTop: 16,
   },
   cancelBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
+  },
+  cancelBtnText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 13,
   },
   saveBtn: {
     flex: 2,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
+  },
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 13,
   },
 });
