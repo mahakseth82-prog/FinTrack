@@ -114,3 +114,4 @@ Never invent totals if unreadable; set totalRupees to null if completely missing
   const rawText = response.text || '{}';
   return JSON.parse(rawText) as GeminiBillOcrResult;
 }
+

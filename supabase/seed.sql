@@ -129,3 +129,4 @@ BEGIN
     RAISE NOTICE 'FinTrack seed.sql completed successfully for user %', v_user_id;
 END;
 $$;
+

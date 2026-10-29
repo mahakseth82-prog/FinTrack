@@ -73,3 +73,4 @@ export function validateEnvOnStartup(): EnvConfig {
 }
 
 export const env = validateEnvOnStartup();
+
