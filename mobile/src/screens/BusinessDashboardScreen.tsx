@@ -9,6 +9,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
+import { SYSTEM_FONT_STACK } from '../theme/colors';
 import {
   useUdhaarLedger,
   useCreateObligation,
@@ -70,7 +71,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     const errMsg =
       ledgerQuery.error instanceof Error
         ? ledgerQuery.error.message
-        : 'Unable to fetch Udhaar Khata from backend.';
+        : 'Unable to load credit & receivables ledger.';
     return (
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <ErrorRetryCard
@@ -128,10 +129,10 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* 1. Clean Udhaar Ledger Summary Card */}
+      {/* 1. Credit & Receivables Summary Card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryTopRow}>
-          <Text style={styles.summaryTitle}>Udhaar Khata Summary</Text>
+          <Text style={styles.sectionHeader}>CREDIT & RECEIVABLES</Text>
           <TouchableOpacity
             onPress={() => setShowNewUdhaarModal(true)}
             style={[
@@ -139,13 +140,13 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               { backgroundColor: palette.primaryBrown },
             ]}
           >
-            <Text style={styles.addBtnText}>+ New Udhaar</Text>
+            <Text style={styles.addBtnText}>New Account</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.metricsRow}>
           <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>You Will Get</Text>
+            <Text style={styles.metricLabel}>Total Receivable</Text>
             <Text style={styles.willGetValue}>
               {formatINR(summary?.totalWillGetPaise || 0)}
             </Text>
@@ -154,7 +155,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
           <View style={styles.metricDivider} />
 
           <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>You Will Give</Text>
+            <Text style={styles.metricLabel}>Total Payable</Text>
             <Text style={styles.willGiveValue}>
               {formatINR(summary?.totalWillGivePaise || 0)}
             </Text>
@@ -171,7 +172,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         )}
       </View>
 
-      {/* 2. Minimal Filter Bar */}
+      {/* 2. Segmented Filter Bar */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -179,32 +180,31 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
       >
         {(
           [
-            { id: 'ALL', label: 'All' },
+            { id: 'ALL', label: 'All Accounts' },
             { id: 'OVERDUE', label: 'Overdue' },
             { id: 'DUE_TODAY', label: 'Due Today' },
-            { id: 'CUSTOMERS', label: 'Customers' },
-            { id: 'SUPPLIERS', label: 'Suppliers' },
+            { id: 'CUSTOMERS', label: 'Receivables' },
+            { id: 'SUPPLIERS', label: 'Payables' },
           ] as { id: FilterChip; label: string }[]
         ).map((chip) => {
-          const isSelected = activeFilter === chip.id;
+          const isActive = activeFilter === chip.id;
           return (
             <TouchableOpacity
               key={chip.id}
               onPress={() => setActiveFilter(chip.id)}
               style={[
                 styles.filterChip,
-                isSelected && {
+                isActive && {
                   backgroundColor: palette.primaryBrown,
                   borderColor: palette.primaryBrown,
                 },
               ]}
             >
               <Text
-                style={{
-                  fontSize: 12,
-                  fontWeight: '600',
-                  color: isSelected ? '#FFFFFF' : '#475569',
-                }}
+                style={[
+                  styles.filterChipText,
+                  { color: isActive ? '#FFFFFF' : '#475569' },
+                ]}
               >
                 {chip.label}
               </Text>
@@ -213,25 +213,28 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         })}
       </ScrollView>
 
-      {/* 3. Streamlined Passbook Account Rows */}
-      <View style={styles.ledgerContainer}>
-        <View style={styles.ledgerHeaderBar}>
-          <Text style={styles.ledgerHeaderLeft}>Account / Due Date</Text>
-          <Text style={styles.ledgerHeaderRight}>Remaining Balance</Text>
+      {/* 3. Executive Ledger Accounts List */}
+      <View style={styles.passbookCard}>
+        <View style={styles.passbookHeaderRow}>
+          <Text style={styles.sectionHeader}>
+            LEDGER ACCOUNTS ({filteredContacts.length})
+          </Text>
         </View>
 
         {filteredContacts.length === 0 ? (
           <View style={{ padding: 16 }}>
             <EmptyStateCard
-              title="No Udhaar Accounts"
-              message="No accounts match this filter. Add your first customer or supplier entry."
-              actionLabel="+ New Udhaar"
+              title="No Active Accounts"
+              message="No receivables or payables match this filter."
+              actionLabel="New Account"
               onActionPress={() => setShowNewUdhaarModal(true)}
             />
           </View>
         ) : (
           filteredContacts.map((contact) => {
             const isReceivable = contact.direction === 'RECEIVABLE';
+            const isOverdue = contact.dueTag === 'OVERDUE';
+
             return (
               <TouchableOpacity
                 key={contact.obligationId}
@@ -239,25 +242,35 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 onPress={() => onOpenContactDetail(contact.contactId)}
                 style={styles.accountRow}
               >
-                <View style={styles.accountLeft}>
-                  <Text style={styles.accountName} numberOfLines={1}>
+                <View style={styles.accountRowLeft}>
+                  <Text style={styles.contactNameText} numberOfLines={1}>
                     {contact.displayName}
                   </Text>
-                  <Text style={styles.accountSubtleMeta} numberOfLines={1}>
-                    Due {contact.dueDate} • Paid {formatINR(contact.repaidPaise)}{' '}
-                    of {formatINR(contact.principalPaise)}
+                  <Text
+                    style={[
+                      styles.contactMetaText,
+                      isOverdue && { color: '#991B1B', fontWeight: '500' },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Due {contact.dueDate}
+                    {isOverdue ? ' (Overdue)' : ''} • Paid{' '}
+                    {formatINR(contact.repaidPaise)} of{' '}
+                    {formatINR(contact.principalPaise)}
                   </Text>
                 </View>
 
-                <View style={styles.accountRight}>
+                <View style={styles.accountRowRight}>
                   <Text
                     style={[
-                      styles.accountAmount,
-                      { color: isReceivable ? '#15803D' : '#B91C1C' },
+                      styles.balanceAmountText,
+                      {
+                        color: isReceivable ? '#065F46' : '#991B1B',
+                      },
                     ]}
                   >
-                    {isReceivable ? '+ ' : '- '}
-                    {formatINR(contact.remainingPaise)}
+                    {isReceivable ? '+' : '-'}
+                    {formatINR(contact.remainingPaise, true)}
                   </Text>
 
                   {isReceivable && contact.remainingPaise > 0 && (
@@ -265,7 +278,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                       onPress={() => handleOpenRemind(contact)}
                       style={styles.remindLinkBtn}
                     >
-                      <Text style={styles.remindLinkText}>Remind</Text>
+                      <Text style={styles.remindLinkText}>Notify</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -275,11 +288,11 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         )}
       </View>
 
-      {/* Clean Modal: Create New Udhaar */}
+      {/* Modal: New Credit / Receivable Account */}
       <Modal visible={showNewUdhaarModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New Udhaar Entry</Text>
+            <Text style={styles.modalTitle}>New Ledger Account</Text>
 
             <View style={styles.dirRow}>
               <TouchableOpacity
@@ -287,19 +300,20 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 style={[
                   styles.dirBtn,
                   direction === 'RECEIVABLE' && {
-                    backgroundColor: '#15803D',
-                    borderColor: '#15803D',
+                    backgroundColor: '#065F46',
+                    borderColor: '#065F46',
                   },
                 ]}
               >
                 <Text
                   style={{
-                    fontWeight: '600',
+                    fontFamily: SYSTEM_FONT_STACK,
                     fontSize: 12,
+                    fontWeight: '600',
                     color: direction === 'RECEIVABLE' ? '#FFFFFF' : '#0F172A',
                   }}
                 >
-                  You Gave (Will Get)
+                  Receivable (Credit Given)
                 </Text>
               </TouchableOpacity>
 
@@ -308,28 +322,29 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 style={[
                   styles.dirBtn,
                   direction === 'PAYABLE' && {
-                    backgroundColor: '#B91C1C',
-                    borderColor: '#B91C1C',
+                    backgroundColor: '#991B1B',
+                    borderColor: '#991B1B',
                   },
                 ]}
               >
                 <Text
                   style={{
-                    fontWeight: '600',
+                    fontFamily: SYSTEM_FONT_STACK,
                     fontSize: 12,
+                    fontWeight: '600',
                     color: direction === 'PAYABLE' ? '#FFFFFF' : '#0F172A',
                   }}
                 >
-                  You Got (Will Give)
+                  Payable (Credit Taken)
                 </Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>Name</Text>
+            <Text style={styles.inputLabel}>Counterparty Name</Text>
             <TextInput
               value={contactName}
               onChangeText={setContactName}
-              placeholder="Customer or Supplier name"
+              placeholder="e.g. Ravi Sharma"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
@@ -338,18 +353,18 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             <TextInput
               value={phoneNumber}
               onChangeText={setPhoneNumber}
-              placeholder="+91..."
               keyboardType="phone-pad"
+              placeholder="+919876543210"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
 
-            <Text style={styles.inputLabel}>Amount (₹)</Text>
+            <Text style={styles.inputLabel}>Principal Amount (INR)</Text>
             <TextInput
               value={principalRupees}
               onChangeText={setPrincipalRupees}
-              placeholder="0.00"
               keyboardType="numeric"
+              placeholder="0.00"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
@@ -358,16 +373,16 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             <TextInput
               value={dueDate}
               onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD"
+              placeholder="2026-11-15"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
 
-            <Text style={styles.inputLabel}>Note</Text>
+            <Text style={styles.inputLabel}>Reference / Note</Text>
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="Bill or item description"
+              placeholder="Invoice or description"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
@@ -379,6 +394,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               >
                 <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 onPress={handleCreateUdhaar}
                 disabled={createObligationMutation.isPending}
@@ -390,7 +406,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 <Text style={styles.saveBtnText}>
                   {createObligationMutation.isPending
                     ? 'Saving...'
-                    : 'Confirm & Save'}
+                    : 'Save Account'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -426,10 +442,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  summaryTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
+  sectionHeader: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.65,
   },
   addBtn: {
     paddingHorizontal: 12,
@@ -437,6 +456,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   addBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     fontWeight: '600',
     color: '#FFFFFF',
@@ -444,24 +464,31 @@ const styles = StyleSheet.create({
   metricsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   metricCol: {
     flex: 1,
   },
   metricLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
+    fontWeight: '500',
     color: '#64748B',
     marginBottom: 3,
   },
   willGetValue: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 18,
-    fontWeight: '700',
-    color: '#15803D',
+    fontWeight: '600',
+    color: '#065F46',
+    fontVariant: ['tabular-nums'],
   },
   willGiveValue: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 18,
-    fontWeight: '700',
-    color: '#B91C1C',
+    fontWeight: '600',
+    color: '#991B1B',
+    fontVariant: ['tabular-nums'],
   },
   metricDivider: {
     width: 1,
@@ -476,92 +503,95 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
   },
   dueStripText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    color: '#B91C1C',
+    color: '#991B1B',
     fontWeight: '500',
   },
   filterRow: {
     gap: 8,
+    paddingVertical: 2,
   },
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
   },
-  ledgerContainer: {
+  filterChipText: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  passbookCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
-  ledgerHeaderBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  passbookHeaderRow: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#F8FAFC',
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
-  },
-  ledgerHeaderLeft: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  ledgerHeaderRight: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
   },
   accountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 14,
     paddingVertical: 12,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
   },
-  accountLeft: {
+  accountRowLeft: {
     flex: 1,
     paddingRight: 12,
   },
-  accountName: {
+  contactNameText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
     color: '#0F172A',
   },
-  accountSubtleMeta: {
+  contactMetaText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
+    fontWeight: '400',
+    color: '#94A3B8',
+    marginTop: 3,
   },
-  accountRight: {
+  accountRowRight: {
     alignItems: 'flex-end',
+    gap: 4,
   },
-  accountAmount: {
+  balanceAmountText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   remindLinkBtn: {
-    marginTop: 4,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   remindLinkText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
     fontWeight: '600',
-    color: '#334155',
+    color: '#475569',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -571,20 +601,21 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   modalTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   dirRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   dirBtn: {
     flex: 1,
@@ -596,17 +627,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '500',
+    color: '#475569',
     marginTop: 8,
     marginBottom: 4,
   },
   input: {
+    fontFamily: SYSTEM_FONT_STACK,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 9,
     fontSize: 14,
@@ -615,30 +648,32 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginTop: 18,
   },
   cancelBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   cancelBtnText: {
-    color: '#64748B',
-    fontWeight: '600',
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
   saveBtn: {
     flex: 2,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   saveBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

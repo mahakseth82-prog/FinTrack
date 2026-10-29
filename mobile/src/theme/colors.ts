@@ -1,19 +1,26 @@
 /**
- * FinTrack — Warm Cream/Beige & Rich Brown Design System
+ * FinTrack — Enterprise Fintech Design System (Mercury / Stripe / Brex Aesthetic)
  *
  * Base Aesthetic:
- *   - Background: Soft Warm Cream (#FAF6F0)
- *   - Cards & Surfaces: Rich Sand / Warm Beige (#F3ECE1)
- *   - Borders & Dividers: Latte Border (#E2D5C3)
- *   - Primary Text: Deep Espresso (#2C1E16)
- *   - Secondary Text: Muted Mocha (#7A6352)
+ *   - Background: Crisp Off-White / Slate (#F8FAFC)
+ *   - Cards & Surfaces: Pure White (#FFFFFF)
+ *   - Borders & Dividers: Subtle Slate (#E2E8F0)
+ *   - Primary Text: Dark Charcoal (#0F172A)
+ *   - Secondary Text: Muted Slate (#64748B)
  *
- * Workspace Mode Palettes (Rule #3: Strictly Separated Modes):
- *   1. PERSONAL MODE: Warm Coffee Brown (#6F4E37) + Caramel Accent (#C88A4B)
- *   2. BUSINESS MODE: Deep Mahogany Brown (#3E2723) + Antique Bronze Accent (#9C6B30)
+ * Workspace Mode Palettes:
+ *   1. PERSONAL MODE: Slate Indigo (#4338CA / #312E81)
+ *   2. BUSINESS MODE: Deep Slate Teal (#0F766E)
  */
 
+import { Platform } from 'react-native';
+
 export type WorkspaceMode = 'PERSONAL' | 'BUSINESS';
+
+export const SYSTEM_FONT_STACK = Platform.select({
+  web: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  default: undefined,
+});
 
 export interface FinTrackPalette {
   mode: WorkspaceMode;
@@ -21,13 +28,13 @@ export interface FinTrackPalette {
   modeSubtitle: string;
   workspaceId: string;
 
-  // Base Cream/Beige Surfaces
+  // Base Surfaces
   backgroundCream: string;
   surfaceBeige: string;
   surfaceElevated: string;
   borderLatte: string;
 
-  // Mode-Specific Browns
+  // Mode-Specific Accents
   primaryBrown: string;
   primaryBrownDark: string;
   accentWarm: string;
@@ -39,54 +46,53 @@ export interface FinTrackPalette {
   textMocha: string;
   textOnPrimary: string;
 
-  // Semantic Financial Colors (Harmonized with Cream & Brown)
-  receiveSageGreen: string;      // You Will Get / Wapas Mila / Income
-  receiveSageTint: string;       // Right Chat Bubble / Positive Badge Bg
-  giveTerracottaRed: string;     // You Will Give / Udhaar Diya / Expense
-  giveTerracottaTint: string;    // Left Chat Bubble / Overdue Badge Bg
-  warningAmber: string;          // Due Today / 80%+ Budget Warning
+  // Semantic Financial Colors
+  receiveSageGreen: string;      // Income / Receipt (#065F46)
+  receiveSageTint: string;
+  giveTerracottaRed: string;     // Expense / Receivable (#991B1B)
+  giveTerracottaTint: string;
+  warningAmber: string;
   warningAmberTint: string;
 }
 
-const SHARED_CREAM_BASE = {
-  backgroundCream: '#FAF6F0',
-  surfaceBeige: '#F3ECE1',
-  surfaceElevated: '#FFFDF9',
-  borderLatte: '#E2D5C3',
-  textEspresso: '#2C1E16',
-  textMocha: '#7A6352',
-  textOnPrimary: '#FAF6F0',
-  receiveSageGreen: '#3B7A57',
-  receiveSageTint: '#E6F2EB',
-  giveTerracottaRed: '#B84A39',
-  giveTerracottaTint: '#F9E6E2',
-  warningAmber: '#B7791F',
-  warningAmberTint: '#FDF3DC',
+const SHARED_ENTERPRISE_BASE = {
+  backgroundCream: '#F8FAFC',
+  surfaceBeige: '#FFFFFF',
+  surfaceElevated: '#F8FAFC',
+  borderLatte: '#E2E8F0',
+  textEspresso: '#0F172A',
+  textMocha: '#64748B',
+  textOnPrimary: '#FFFFFF',
+  receiveSageGreen: '#065F46',
+  receiveSageTint: '#ECFDF5',
+  giveTerracottaRed: '#991B1B',
+  giveTerracottaTint: '#FEF2F2',
+  warningAmber: '#B45309',
+  warningAmberTint: '#FFFBEB',
 };
 
 export const PERSONAL_THEME: FinTrackPalette = {
-  ...SHARED_CREAM_BASE,
+  ...SHARED_ENTERPRISE_BASE,
   mode: 'PERSONAL',
-  modeTitle: 'Ghar Ka Khata',
-  modeSubtitle: 'Personal Expenses, Budget & Friends Udhaar',
+  modeTitle: 'Personal Workspace',
+  modeSubtitle: 'Transactions & Monthly Budgets',
   workspaceId: 'ws-personal-001',
-  primaryBrown: '#6F4E37',      // Warm Coffee Roast
-  primaryBrownDark: '#543927',
-  accentWarm: '#C88A4B',        // Warm Caramel
-  pillActiveBg: '#6F4E37',
-  pillInactiveBg: '#EAE0D2',
+  primaryBrown: '#4338CA',      // Slate Indigo
+  primaryBrownDark: '#312E81',
+  accentWarm: '#4F46E5',
+  pillActiveBg: '#4338CA',
+  pillInactiveBg: '#F1F5F9',
 };
 
 export const BUSINESS_THEME: FinTrackPalette = {
-  ...SHARED_CREAM_BASE,
+  ...SHARED_ENTERPRISE_BASE,
   mode: 'BUSINESS',
-  modeTitle: 'Vyapaar Khata',
-  modeSubtitle: 'Customer & Supplier Digital Udhaar Ledger',
+  modeTitle: 'Business Workspace',
+  modeSubtitle: 'Credit & Receivables Ledger',
   workspaceId: 'ws-business-001',
-  primaryBrown: '#3E2723',      // Deep Mahogany / Dark Cocoa
-  primaryBrownDark: '#271714',
-  accentWarm: '#9C6B30',        // Antique Bronze
-  pillActiveBg: '#3E2723',
-  pillInactiveBg: '#E6DBD0',
+  primaryBrown: '#0F766E',      // Deep Slate Teal
+  primaryBrownDark: '#115E59',
+  accentWarm: '#0D9488',
+  pillActiveBg: '#0F766E',
+  pillInactiveBg: '#F1F5F9',
 };
-

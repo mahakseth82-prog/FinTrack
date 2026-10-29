@@ -8,7 +8,9 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
+import { SYSTEM_FONT_STACK } from '../theme/colors';
 import {
   useContactDetail,
   useRecordLedgerEntry,
@@ -36,7 +38,6 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 }) => {
   const { activeWorkspaceId } = useFinTrackTheme();
 
-  // Live TanStack React Query Hooks
   const detailQuery = useContactDetail(activeWorkspaceId, contactId);
   const recordEntryMutation = useRecordLedgerEntry(
     activeWorkspaceId,
@@ -52,7 +53,6 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
   const [reminderTarget, setReminderTarget] =
     useState<ReminderTargetInfo | null>(null);
 
-  // 1. Loading State
   if (detailQuery.isLoading) {
     return (
       <View style={[styles.container, { padding: 16 }]}>
@@ -61,16 +61,15 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
     );
   }
 
-  // 2. Error State
   if (detailQuery.isError || !detailQuery.data) {
     const errMsg =
       detailQuery.error instanceof Error
         ? detailQuery.error.message
-        : 'Could not load contact ledger timeline from server.';
+        : 'Unable to load account ledger entries.';
     return (
       <View style={[styles.container, { padding: 16 }]}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>← Back to Khata</Text>
+          <Text style={styles.backBtnText}>Back to Ledger</Text>
         </TouchableOpacity>
         <ErrorRetryCard
           errorMessage={errMsg}
@@ -124,17 +123,18 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* 1. Clean Passbook Account Header */}
+      {/* 1. Executive Account Header */}
       <View style={styles.topBar}>
         <View style={styles.topBarRow}>
           <TouchableOpacity onPress={onBack} style={styles.backPill}>
-            <Text style={styles.backPillText}>← Back</Text>
+            <Feather name="arrow-left" size={14} color="#0F172A" />
+            <Text style={styles.backPillText}>Back</Text>
           </TouchableOpacity>
 
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.contactTitle}>{contact.displayName}</Text>
             <Text style={styles.contactSub}>
-              {contact.phoneNumber} • Due: {obligation?.dueDate || 'N/A'}
+              {contact.phoneNumber} • Due {obligation?.dueDate || 'N/A'}
             </Text>
           </View>
 
@@ -143,12 +143,12 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
               onPress={handleWhatsAppRemind}
               style={styles.waHeaderBtn}
             >
-              <Text style={styles.waHeaderBtnText}>Remind</Text>
+              <Text style={styles.waHeaderBtnText}>Send Notice</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Partial Payment Math Summary Strip */}
+        {/* Balance Breakdown Strip */}
         <View style={styles.mathSummaryCard}>
           <View style={styles.mathCol}>
             <Text style={styles.mathColLabel}>Principal</Text>
@@ -159,7 +159,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
           <View style={styles.mathCol}>
             <Text style={styles.mathColLabel}>Settled</Text>
-            <Text style={[styles.mathColVal, { color: '#15803D' }]}>
+            <Text style={[styles.mathColVal, { color: '#065F46' }]}>
               {formatINR(repaidPaise)}
             </Text>
           </View>
@@ -168,7 +168,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
           <View style={styles.mathCol}>
             <Text style={styles.mathColLabel}>
-              Balance ({obligation?.status || 'OPEN'})
+              Outstanding ({obligation?.status || 'OPEN'})
             </Text>
             <Text
               style={[
@@ -176,9 +176,9 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                 {
                   color:
                     remainingPaise === 0
-                      ? '#15803D'
+                      ? '#065F46'
                       : isReceivable
-                        ? '#B91C1C'
+                        ? '#991B1B'
                         : '#0F172A',
                 },
               ]}
@@ -189,21 +189,21 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
         </View>
       </View>
 
-      {/* 2. Passbook Ledger Statement Rows */}
+      {/* 2. Executive Ledger Statement Rows */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.statementHeaderBar}>
-          <Text style={styles.statementHeaderText}>ACCOUNT LEDGER ENTRIES</Text>
+          <Text style={styles.statementHeaderText}>LEDGER STATEMENT</Text>
           <Text style={styles.statementHeaderText}>AMOUNT / BALANCE</Text>
         </View>
 
         {entries.length === 0 ? (
           <View style={{ padding: 16 }}>
             <EmptyStateCard
-              title="No Ledger Entries Yet"
-              message="Use the buttons below to record Udhaar Diya (Gave) or Wapas Mila (Got)."
+              title="No Ledger Entries"
+              message="Use the actions below to record credit extended or payments received."
             />
           </View>
         ) : (
@@ -218,26 +218,26 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                     idx < entries.length - 1 && styles.ledgerRowDivider,
                   ]}
                 >
-                  {/* Left Side: Description + Payment Mode & Time */}
                   <View style={styles.rowLeft}>
                     <Text style={styles.entryTitle} numberOfLines={1}>
-                      {entry.note || (isGave ? 'Udhaar Given' : 'Payment Received')}
+                      {entry.note || (isGave ? 'Credit Extended' : 'Payment Received')}
                     </Text>
                     <Text style={styles.entrySub} numberOfLines={1}>
-                      {entry.paymentVia} • {entry.occurredAt}
+                      {entry.paymentVia === 'CASH'
+                        ? entry.occurredAt
+                        : `${entry.paymentVia} • ${entry.occurredAt}`}
                     </Text>
                   </View>
 
-                  {/* Right Side: Signed Amount & Running Balance */}
                   <View style={styles.rowRight}>
                     <Text
                       style={[
                         styles.entryAmount,
-                        { color: isGave ? '#B91C1C' : '#15803D' },
+                        { color: isGave ? '#991B1B' : '#065F46' },
                       ]}
                     >
-                      {isGave ? '- ' : '+ '}
-                      {formatINR(entry.amountPaise)}
+                      {isGave ? '-' : '+'}
+                      {formatINR(entry.amountPaise, true)}
                     </Text>
                     <Text style={styles.runningBalText}>
                       Bal: {formatINR(entry.runningRemainingPaise)}
@@ -258,10 +258,10 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
             setAmountRupees('');
             setEntryModalAction('GAVE');
           }}
-          style={[styles.actionButton, { backgroundColor: '#B91C1C' }]}
+          style={[styles.actionButton, { backgroundColor: '#991B1B' }]}
         >
-          <Text style={styles.actionBtnTitle}>Udhaar Diya (-)</Text>
-          <Text style={styles.actionBtnSub}>You Gave (₹)</Text>
+          <Text style={styles.actionBtnTitle}>Extend Credit (-)</Text>
+          <Text style={styles.actionBtnSub}>Record Outflow</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -272,14 +272,14 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
             );
             setEntryModalAction('GOT');
           }}
-          style={[styles.actionButton, { backgroundColor: '#15803D' }]}
+          style={[styles.actionButton, { backgroundColor: '#065F46' }]}
         >
-          <Text style={styles.actionBtnTitle}>Wapas Mila (+)</Text>
-          <Text style={styles.actionBtnSub}>You Got / Settle (₹)</Text>
+          <Text style={styles.actionBtnTitle}>Receive Payment (+)</Text>
+          <Text style={styles.actionBtnSub}>Record Settlement</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Partial Repayment / Additional Udhaar Modal */}
+      {/* Modal: Record Ledger Entry */}
       <Modal
         visible={entryModalAction !== null}
         transparent
@@ -289,25 +289,25 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
               {entryModalAction === 'GOT'
-                ? `Wapas Mila from ${contact.displayName}`
-                : `Udhaar Diya to ${contact.displayName}`}
+                ? `Receive Payment from ${contact.displayName}`
+                : `Extend Credit to ${contact.displayName}`}
             </Text>
 
             <Text style={styles.modalSub}>
-              Current Balance: {formatINR(remainingPaise)}
+              Outstanding Balance: {formatINR(remainingPaise)}
             </Text>
 
-            <Text style={styles.inputLabel}>Amount (₹ Rupees)</Text>
+            <Text style={styles.inputLabel}>Amount (INR)</Text>
             <TextInput
               value={amountRupees}
               onChangeText={setAmountRupees}
               keyboardType="numeric"
-              placeholder="Enter amount"
+              placeholder="0.00"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
 
-            <Text style={styles.inputLabel}>Payment Mode</Text>
+            <Text style={styles.inputLabel}>Payment Method</Text>
             <View style={styles.modeRow}>
               {(['UPI', 'CASH', 'BANK_TRANSFER'] as PaymentChannel[]).map(
                 (ch) => (
@@ -332,11 +332,11 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
               )}
             </View>
 
-            <Text style={styles.inputLabel}>Note / Description</Text>
+            <Text style={styles.inputLabel}>Reference / Description</Text>
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="Enter note"
+              placeholder="Enter description"
               placeholderTextColor="#94A3B8"
               style={styles.input}
             />
@@ -356,14 +356,12 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                   styles.confirmBtn,
                   {
                     backgroundColor:
-                      entryModalAction === 'GOT' ? '#15803D' : '#B91C1C',
+                      entryModalAction === 'GOT' ? '#065F46' : '#991B1B',
                   },
                 ]}
               >
                 <Text style={styles.confirmBtnText}>
-                  {recordEntryMutation.isPending
-                    ? 'Saving...'
-                    : 'Confirm & Save'}
+                  {recordEntryMutation.isPending ? 'Saving...' : 'Save Entry'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -389,8 +387,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   backBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     color: '#0F172A',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 13,
   },
   topBar: {
@@ -407,39 +406,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   backPillText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   contactTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   contactSub: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     color: '#64748B',
     marginTop: 2,
   },
   waHeaderBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 6,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
   },
   waHeaderBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   mathSummaryCard: {
@@ -458,15 +464,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   mathColLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#64748B',
   },
   mathColVal: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
     marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
   verticalDivider: {
     width: 1,
@@ -481,15 +490,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
   statementHeaderText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#475569',
-    letterSpacing: 0.4,
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   passbookCard: {
     backgroundColor: '#FFFFFF',
@@ -510,26 +521,33 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   entryTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
     color: '#0F172A',
   },
   entrySub: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    color: '#64748B',
+    fontWeight: '400',
+    color: '#94A3B8',
     marginTop: 3,
   },
   rowRight: {
     alignItems: 'flex-end',
   },
   entryAmount: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   runningBalText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
     color: '#64748B',
     marginTop: 3,
+    fontVariant: ['tabular-nums'],
   },
   bottomActionContainer: {
     flexDirection: 'row',
@@ -543,15 +561,17 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   actionBtnTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   actionBtnSub: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
     marginTop: 1,
     color: '#F8FAFC',
@@ -566,35 +586,39 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 440,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
     padding: 20,
     borderTopWidth: 1,
     borderColor: '#E2E8F0',
   },
   modalTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   modalSub: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     color: '#64748B',
     marginTop: 4,
     marginBottom: 12,
   },
   inputLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '500',
+    color: '#475569',
     marginTop: 10,
     marginBottom: 5,
   },
   input: {
+    fontFamily: SYSTEM_FONT_STACK,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
-    borderRadius: 8,
+    borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -609,7 +633,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
   },
@@ -618,8 +642,9 @@ const styles = StyleSheet.create({
     borderColor: '#0F172A',
   },
   modeBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#475569',
   },
   modeBtnTextActive: {
@@ -633,12 +658,13 @@ const styles = StyleSheet.create({
   cancelBtn: {
     flex: 1,
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   cancelBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     color: '#475569',
     fontWeight: '600',
     fontSize: 13,
@@ -646,12 +672,13 @@ const styles = StyleSheet.create({
   confirmBtn: {
     flex: 2,
     paddingVertical: 11,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   confirmBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 13,
   },
 });

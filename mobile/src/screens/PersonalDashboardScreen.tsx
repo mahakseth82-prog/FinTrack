@@ -8,8 +8,10 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
+import { SYSTEM_FONT_STACK } from '../theme/colors';
 import {
   useDashboardSummary,
   useBudgets,
@@ -32,8 +34,8 @@ interface PersonalDashboardProps {
 
 interface DailyTransactionGroup {
   dateKey: string; // YYYY-MM-DD
-  displayDate: string; // e.g., "Today, 29 Oct" or "28 Oct 2026"
-  dailyTotalSpentPaise: number;
+  displayDate: string; // e.g., "Today, 30 Oct 2026" or "28 Oct 2026"
+  dailyNetSpentPaise: number;
   items: Array<TransactionDto & { formattedTime: string }>;
 }
 
@@ -59,7 +61,7 @@ function toLocalDateKey(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function formatPassbookDateLabel(
+function formatExecutiveDateLabel(
   dateKey: string,
   todayKey: string,
   yesterdayKey: string
@@ -72,15 +74,15 @@ function formatPassbookDateLabel(
   const monthName = SHORT_MONTHS[monthIdx] || parts[1];
 
   if (dateKey === todayKey) {
-    return `Today, ${day} ${monthName}`;
+    return `Today, ${day} ${monthName} ${year}`;
   }
   if (dateKey === yesterdayKey) {
-    return `Yesterday, ${day} ${monthName}`;
+    return `Yesterday, ${day} ${monthName} ${year}`;
   }
   return `${day} ${monthName} ${year}`;
 }
 
-function formatPassbookTime(isoOrString: string): string {
+function formatExecutiveTime(isoOrString: string): string {
   const d = new Date(isoOrString);
   if (Number.isNaN(d.getTime())) {
     return isoOrString;
@@ -93,10 +95,10 @@ function formatPassbookTime(isoOrString: string): string {
 }
 
 /**
- * 1. PAYMENT METHOD LABEL RULE (NO UNNECESSARY 'UPI' TAGS)
- * - Imported online transactions ('NOTIFICATION', 'SMS', 'EMAIL'): "📱 UPI • 08:30 PM"
+ * Payment Method Subtitle Rule (No emojis or unnecessary tags):
+ * - Imported online transactions ('NOTIFICATION', 'SMS', 'EMAIL'): "UPI • 07:49 PM"
  * - Card / Bank Transfer: "Card • 04:30 PM" / "Bank Transfer • 03:00 PM"
- * - Cash or Voice/Manual entry: only show timestamp ("07:49 PM")
+ * - Cash or Voice/Manual entry: "07:49 PM"
  */
 function formatTransactionSubtitle(
   tx: TransactionDto,
@@ -109,7 +111,7 @@ function formatTransactionSubtitle(
     );
 
   if (isImported) {
-    return `📱 UPI • ${formattedTime}`;
+    return `UPI • ${formattedTime}`;
   }
   if (tx.paymentVia === 'CARD') {
     return `Card • ${formattedTime}`;
@@ -125,7 +127,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
 }) => {
   const { palette, activeWorkspaceId } = useFinTrackTheme();
 
-  // Live TanStack React Query Hooks (Zero hardcoded dummy data)
+  // Live TanStack React Query Hooks
   const summaryQuery = useDashboardSummary(activeWorkspaceId);
   const budgetsQuery = useBudgets(activeWorkspaceId);
   const udhaarQuery = useContactsList(activeWorkspaceId);
@@ -147,12 +149,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const personalUdhaarItems = udhaarQuery.data?.items || [];
   const recentTransactions = summary?.recentTransactions || [];
 
-  /**
-   * 4. DATA GROUPING LOGIC (NO HARDCODED DATA)
-   * - Sort incoming transaction array by `occurredAt DESC`
-   * - Reduce into a grouped dictionary/map keyed by date string (`YYYY-MM-DD`)
-   * - Calculate daily total spent per group using integer paise
-   */
   const groupedTransactions = useMemo<DailyTransactionGroup[]>(() => {
     const now = new Date();
     const todayKey = toLocalDateKey(now);
@@ -178,24 +174,24 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       if (!group) {
         group = {
           dateKey,
-          displayDate: formatPassbookDateLabel(
+          displayDate: formatExecutiveDateLabel(
             dateKey,
             todayKey,
             yesterdayKey
           ),
-          dailyTotalSpentPaise: 0,
+          dailyNetSpentPaise: 0,
           items: [],
         };
         groupsMap.set(dateKey, group);
       }
 
       if (tx.kind === 'EXPENSE') {
-        group.dailyTotalSpentPaise += tx.amountPaise;
+        group.dailyNetSpentPaise += tx.amountPaise;
       }
 
       group.items.push({
         ...tx,
-        formattedTime: formatPassbookTime(tx.occurredAt),
+        formattedTime: formatExecutiveTime(tx.occurredAt),
       });
     }
 
@@ -220,7 +216,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     const errMsg =
       summaryQuery.error instanceof Error
         ? summaryQuery.error.message
-        : 'Unable to fetch Personal Passbook from backend.';
+        : 'Unable to load workspace transactions.';
     return (
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <ErrorRetryCard
@@ -246,11 +242,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     setQuickInput('');
   };
 
-  /**
-   * Direct Home Page Bill Scanner:
-   * Opens image picker / camera directly from Home page, scans via Gemini Vision,
-   * and adds the spend straight into `Recent Spends`.
-   */
   const handleScanBill = async () => {
     setScanStatusMsg(null);
     try {
@@ -265,7 +256,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       }
 
       const asset = result.assets[0];
-      setScanStatusMsg('Scanning bill & adding to Recent Spends...');
+      setScanStatusMsg('Scanning receipt...');
       const res = await scanBillMutation.mutateAsync({
         imageBase64: asset.base64!,
         mimeType: asset.mimeType || 'image/jpeg',
@@ -273,7 +264,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
 
       if (res.savedSummary) {
         setScanStatusMsg(
-          `Added from bill: ${res.savedSummary.title} (-${res.savedSummary.amountFormatted})`
+          `Added: ${res.savedSummary.title} (-${res.savedSummary.amountFormatted})`
         );
         setTimeout(() => setScanStatusMsg(null), 3500);
       } else {
@@ -281,7 +272,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       }
     } catch (err: unknown) {
       setScanStatusMsg(
-        err instanceof Error ? err.message : 'Could not scan bill photo'
+        err instanceof Error ? err.message : 'Unable to process receipt image'
       );
     }
   };
@@ -307,34 +298,34 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* 1. Minimal Statement Summary Bar */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryHeaderRow}>
-          <Text style={styles.summaryTitle}>Monthly Overview</Text>
+      {/* 1. Executive Overview Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.sectionHeader}>OVERVIEW</Text>
           <View style={styles.headerActionBtns}>
             <TouchableOpacity
               onPress={handleScanBill}
               disabled={scanBillMutation.isPending}
-              style={styles.cameraIconBtn}
+              style={styles.iconActionBtn}
             >
-              <Text style={styles.cameraIconText}>📷</Text>
+              <Feather name="camera" size={14} color="#475569" />
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => setShowAddModal(true)}
               style={[
-                styles.addEntryBtn,
+                styles.primarySmallBtn,
                 { backgroundColor: palette.primaryBrown },
               ]}
             >
-              <Text style={styles.addEntryBtnText}>+ Add Entry</Text>
+              <Text style={styles.primarySmallBtnText}>New Transaction</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.summaryMetricsRow}>
           <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>Total Spent</Text>
+            <Text style={styles.metricLabel}>Total Outflow</Text>
             <Text style={styles.metricExpenseValue}>
               {formatINR(summary?.totalSpentPaise || 0)}
             </Text>
@@ -343,7 +334,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           <View style={styles.metricDivider} />
 
           <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>Total Income</Text>
+            <Text style={styles.metricLabel}>Total Inflow</Text>
             <Text style={styles.metricIncomeValue}>
               {formatINR(summary?.totalIncomePaise || 0)}
             </Text>
@@ -359,12 +350,12 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </View>
         </View>
 
-        {/* Inline 1-Line Quick Add Bar + Camera Icon (Auto-saves directly to Recent Spends) */}
+        {/* Inline Quick Entry Bar + Receipt Camera Trigger */}
         <View style={styles.quickAddRow}>
           <TextInput
             value={quickInput}
             onChangeText={setQuickInput}
-            placeholder='Quick add: e.g. "Petrol 300" or "DMart 450"'
+            placeholder='Quick entry (e.g. "Petrol 300" or "DMart 450")'
             placeholderTextColor="#94A3B8"
             onSubmitEditing={handleQuickSave}
             style={styles.quickAddInput}
@@ -374,15 +365,18 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             disabled={scanBillMutation.isPending}
             style={styles.quickCameraBtn}
           >
-            <Text style={styles.cameraIconText}>📷</Text>
+            <Feather name="camera" size={15} color="#475569" />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleQuickSave}
             disabled={parseVoiceMutation.isPending}
-            style={styles.quickAddBtn}
+            style={[
+              styles.quickAddBtn,
+              { backgroundColor: palette.primaryBrown },
+            ]}
           >
             <Text style={styles.quickAddBtnText}>
-              {parseVoiceMutation.isPending ? '...' : 'Save'}
+              {parseVoiceMutation.isPending ? 'Saving' : 'Add'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -392,13 +386,13 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         )}
       </View>
 
-      {/* 2. Compact & Clean Monthly Budgets Card */}
+      {/* 2. Compact Monthly Budgets Card */}
       <View style={styles.card}>
-        <Text style={styles.cardSectionTitle}>Monthly Budgets</Text>
+        <Text style={styles.sectionHeader}>MONTHLY BUDGETS</Text>
 
         {budgets.length === 0 ? (
           <Text style={styles.subtleEmptyText}>
-            No category budgets set for this month.
+            No category budgets configured for this period.
           </Text>
         ) : (
           <View style={styles.budgetListWrap}>
@@ -420,7 +414,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                     </Text>
                   </View>
 
-                  {/* Slim, subtle 4px progress bar — changes color at >=80% without noisy text banners */}
                   <View style={styles.slimProgressTrack}>
                     <View
                       style={[
@@ -428,8 +421,8 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                         {
                           width: `${pct}%`,
                           backgroundColor: isOverThreshold
-                            ? '#B91C1C'
-                            : '#475569',
+                            ? '#991B1B'
+                            : palette.primaryBrown,
                         },
                       ]}
                     />
@@ -441,37 +434,37 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         )}
       </View>
 
-      {/* 3. Personal Udhaar Compact Summary (If any contacts exist) */}
+      {/* 3. Credit & Receivables Summary (If any contacts exist in Personal workspace) */}
       {(personalUdhaarItems.length > 0 ||
         (summary?.totalReceivablePaise || 0) > 0 ||
         (summary?.totalPayablePaise || 0) > 0) && (
         <View style={styles.card}>
           <View style={styles.udhaarHeaderRow}>
-            <Text style={styles.cardSectionTitle}>Personal Udhaar</Text>
+            <Text style={styles.sectionHeader}>CREDIT & RECEIVABLES</Text>
             <Text style={styles.udhaarNetSummary}>
-              Get:{' '}
-              <Text style={{ color: '#15803D', fontWeight: '600' }}>
+              Receivable:{' '}
+              <Text style={{ color: '#065F46', fontWeight: '600' }}>
                 {formatINR(summary?.totalReceivablePaise || 0)}
               </Text>
               {'  •  '}
-              Owe:{' '}
-              <Text style={{ color: '#B91C1C', fontWeight: '600' }}>
+              Payable:{' '}
+              <Text style={{ color: '#991B1B', fontWeight: '600' }}>
                 {formatINR(summary?.totalPayablePaise || 0)}
               </Text>
             </Text>
           </View>
 
-          {personalUdhaarItems.map((friend) => (
+          {personalUdhaarItems.map((item) => (
             <TouchableOpacity
-              key={friend.obligationId}
-              onPress={() => onOpenContactDetail(friend.contactId)}
+              key={item.obligationId}
+              onPress={() => onOpenContactDetail(item.contactId)}
               style={styles.compactFriendRow}
             >
               <View>
-                <Text style={styles.txMerchantText}>{friend.displayName}</Text>
+                <Text style={styles.txMerchantText}>{item.displayName}</Text>
                 <Text style={styles.txSubtleMeta}>
-                  Due {friend.dueDate}
-                  {friend.titleOrNote ? ` • ${friend.titleOrNote}` : ''}
+                  Due {item.dueDate}
+                  {item.titleOrNote ? ` • ${item.titleOrNote}` : ''}
                 </Text>
               </View>
               <Text
@@ -479,52 +472,52 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                   styles.txAmountText,
                   {
                     color:
-                      friend.direction === 'RECEIVABLE' ? '#15803D' : '#B91C1C',
+                      item.direction === 'RECEIVABLE' ? '#065F46' : '#991B1B',
                   },
                 ]}
               >
-                {friend.direction === 'RECEIVABLE' ? '+ ' : '- '}
-                {formatINR(friend.remainingPaise)}
+                {item.direction === 'RECEIVABLE' ? '+' : '-'}
+                {formatINR(item.remainingPaise, true)}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
       )}
 
-      {/* 4. Minimal Date-Based Recent Spends List */}
-      <View style={styles.passbookContainer}>
-        <View style={styles.passbookTitleWrap}>
-          <Text style={styles.cardSectionTitle}>Recent Spends</Text>
+      {/* 4. Executive Transaction List & Date Headers */}
+      <View style={styles.transactionsCard}>
+        <View style={styles.transactionsTitleWrap}>
+          <Text style={styles.sectionHeader}>TRANSACTIONS</Text>
         </View>
 
         {groupedTransactions.length === 0 ? (
           <View style={{ padding: 16 }}>
             <EmptyStateCard
-              title="No Spends Yet"
-              message="Tap + Add Entry or use the Voice button to record your first entry."
-              actionLabel="+ Add Entry"
+              title="No Transactions Recorded"
+              message="Use the quick entry bar or microphone button to record a transaction."
+              actionLabel="New Transaction"
               onActionPress={() => setShowAddModal(true)}
             />
           </View>
         ) : (
           groupedTransactions.map((group) => (
             <View key={group.dateKey}>
-              {/* Clean Date Separator Bar */}
+              {/* Date Separator Bar */}
               <View style={styles.dateSeparatorBar}>
                 <Text style={styles.dateSeparatorLeft}>
                   {group.displayDate}
                 </Text>
                 <Text style={styles.dateSeparatorRight}>
-                  Total: {formatINR(group.dailyTotalSpentPaise)}
+                  Net: {formatINR(group.dailyNetSpentPaise)}
                 </Text>
               </View>
 
-              {/* Compact Two-Column Transaction Rows */}
+              {/* Two-Column Transaction Line Items */}
               {group.items.map((tx) => {
                 const isIncome = tx.kind === 'INCOME';
                 return (
-                  <View key={tx.id} style={styles.passbookRow}>
-                    <View style={styles.passbookRowLeft}>
+                  <View key={tx.id} style={styles.txLineItem}>
+                    <View style={styles.txColLeft}>
                       <Text style={styles.txMerchantText} numberOfLines={1}>
                         {tx.merchantOrPayee}
                       </Text>
@@ -536,11 +529,11 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                     <Text
                       style={[
                         styles.txAmountText,
-                        { color: isIncome ? '#15803D' : '#B91C1C' },
+                        { color: isIncome ? '#065F46' : '#991B1B' },
                       ]}
                     >
-                      {isIncome ? '+ ' : '- '}
-                      {formatINR(tx.amountPaise)}
+                      {isIncome ? '+' : '-'}
+                      {formatINR(tx.amountPaise, true)}
                     </Text>
                   </View>
                 );
@@ -550,11 +543,11 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         )}
       </View>
 
-      {/* Clean Modal: Add Personal Entry */}
+      {/* Modal: New Transaction */}
       <Modal visible={showAddModal} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add Passbook Entry</Text>
+            <Text style={styles.modalTitle}>New Transaction</Text>
 
             <View style={styles.kindToggleRow}>
               {(['EXPENSE', 'INCOME'] as TransactionKind[]).map((k) => (
@@ -571,6 +564,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 >
                   <Text
                     style={{
+                      fontFamily: SYSTEM_FONT_STACK,
                       fontWeight: '600',
                       fontSize: 13,
                       color: txKind === k ? '#FFFFFF' : '#0F172A',
@@ -582,7 +576,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               ))}
             </View>
 
-            <Text style={styles.inputLabel}>Amount (₹)</Text>
+            <Text style={styles.inputLabel}>Amount (INR)</Text>
             <TextInput
               value={amountRupees}
               onChangeText={setAmountRupees}
@@ -592,7 +586,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               style={styles.input}
             />
 
-            <Text style={styles.inputLabel}>Merchant or Person</Text>
+            <Text style={styles.inputLabel}>Merchant or Counterparty</Text>
             <TextInput
               value={merchant}
               onChangeText={setMerchant}
@@ -627,7 +621,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 ]}
               >
                 <Text style={styles.saveBtnText}>
-                  {createTxMutation.isPending ? 'Saving...' : 'Confirm & Save'}
+                  {createTxMutation.isPending ? 'Saving...' : 'Save Transaction'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -644,48 +638,49 @@ const styles = StyleSheet.create({
     paddingBottom: 90,
     gap: 12,
   },
-  summaryCard: {
+  card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  summaryHeaderRow: {
+  cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-  summaryTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
+  sectionHeader: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.65,
   },
   headerActionBtns: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  cameraIconBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+  iconActionBtn: {
+    width: 30,
+    height: 30,
     borderRadius: 6,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cameraIconText: {
-    fontSize: 14,
-  },
-  addEntryBtn: {
-    paddingHorizontal: 12,
+  primarySmallBtn: {
+    paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: 6,
   },
-  addEntryBtnText: {
+  primarySmallBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     fontWeight: '600',
     color: '#FFFFFF',
@@ -699,24 +694,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   metricLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
+    fontWeight: '500',
     color: '#64748B',
     marginBottom: 3,
   },
   metricExpenseValue: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#B91C1C',
+    fontWeight: '600',
+    color: '#991B1B',
+    fontVariant: ['tabular-nums'],
   },
   metricIncomeValue: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#15803D',
+    fontWeight: '600',
+    color: '#065F46',
+    fontVariant: ['tabular-nums'],
   },
   metricNetValue: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
+    fontVariant: ['tabular-nums'],
   },
   metricDivider: {
     width: 1,
@@ -733,9 +736,10 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
   },
   quickAddInput: {
+    fontFamily: SYSTEM_FONT_STACK,
     flex: 1,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
     borderRadius: 6,
     paddingHorizontal: 10,
@@ -744,66 +748,38 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   quickCameraBtn: {
-    paddingHorizontal: 10,
+    width: 36,
     borderRadius: 6,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickAddBtn: {
-    backgroundColor: '#0F172A',
     paddingHorizontal: 14,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickAddBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   scanStatusText: {
+    fontFamily: SYSTEM_FONT_STACK,
     marginTop: 8,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#15803D',
-  },
-  pendingDraftsStrip: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  pendingDraftsText: {
-    fontSize: 12,
-    color: '#475569',
-  },
-  pendingDraftsLink: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  cardSectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '500',
+    color: '#065F46',
   },
   subtleEmptyText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    color: '#64748B',
-    marginTop: 6,
+    color: '#94A3B8',
+    marginTop: 8,
   },
   budgetListWrap: {
     marginTop: 10,
@@ -818,19 +794,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   budgetCategoryName: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
     fontWeight: '500',
     color: '#0F172A',
   },
   budgetNumbersText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#64748B',
+    fontVariant: ['tabular-nums'],
   },
   slimProgressTrack: {
     height: 4,
-    borderRadius: 2,
     backgroundColor: '#F1F5F9',
+    borderRadius: 2,
     overflow: 'hidden',
   },
   slimProgressFill: {
@@ -844,8 +823,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   udhaarNetSummary: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     color: '#64748B',
+    fontVariant: ['tabular-nums'],
   },
   compactFriendRow: {
     flexDirection: 'row',
@@ -855,14 +836,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
-  passbookContainer: {
+  transactionsCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
-  passbookTitleWrap: {
+  transactionsTitleWrap: {
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -873,52 +854,60 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingVertical: 8,
     backgroundColor: '#F8FAFC',
     borderBottomWidth: 1,
     borderBottomColor: '#E2E8F0',
   },
   dateSeparatorLeft: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     fontWeight: '600',
     color: '#475569',
   },
   dateSeparatorRight: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '400',
     color: '#64748B',
+    fontVariant: ['tabular-nums'],
   },
-  passbookRow: {
+  txLineItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 14,
     paddingVertical: 12,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
     backgroundColor: '#FFFFFF',
   },
-  passbookRowLeft: {
+  txColLeft: {
     flex: 1,
     paddingRight: 12,
   },
   txMerchantText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '500',
     color: '#0F172A',
   },
   txSubtleMeta: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
+    fontWeight: '400',
+    color: '#94A3B8',
+    marginTop: 3,
   },
   txAmountText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -928,24 +917,25 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   modalTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   kindToggleRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 14,
   },
   kindBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -953,17 +943,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
-    marginTop: 10,
-    marginBottom: 4,
+    fontWeight: '500',
+    color: '#475569',
+    marginBottom: 5,
+    marginTop: 8,
   },
   input: {
+    fontFamily: SYSTEM_FONT_STACK,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 9,
     fontSize: 14,
@@ -977,25 +969,27 @@ const styles = StyleSheet.create({
   cancelBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   cancelBtnText: {
-    color: '#64748B',
-    fontWeight: '600',
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
   saveBtn: {
     flex: 2,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 6,
     alignItems: 'center',
   },
   saveBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

@@ -6,9 +6,11 @@ import {
   StyleSheet,
   SafeAreaView,
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspaces } from '../hooks/useFinTrackQueries';
+import { SYSTEM_FONT_STACK } from '../theme/colors';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
 import { VoiceAssistantSheet } from '../components/VoiceAssistantSheet';
 import { AuthScreen } from '../screens/AuthScreen';
@@ -17,7 +19,7 @@ import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
 import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
-export type ActiveTab = 'HOME' | 'UDHAAR';
+export type ActiveTab = 'HOME' | 'LEDGER';
 
 export const RootNavigator: React.FC = () => {
   const { user } = useAuth();
@@ -67,7 +69,7 @@ export const RootNavigator: React.FC = () => {
               contactId={selectedContactId}
               onBack={() => setSelectedContactId(null)}
             />
-          ) : activeTab === 'UDHAAR' ? (
+          ) : activeTab === 'LEDGER' ? (
             <BusinessDashboardScreen
               onOpenContactDetail={(id) => setSelectedContactId(id)}
             />
@@ -94,13 +96,18 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('HOME')}
               style={styles.tabItem}
             >
+              <Feather
+                name="home"
+                size={18}
+                color={activeTab === 'HOME' ? palette.primaryBrown : '#94A3B8'}
+              />
               <Text
                 style={[
                   styles.tabLabel,
                   {
                     color:
                       activeTab === 'HOME' ? palette.primaryBrown : '#64748B',
-                    fontWeight: activeTab === 'HOME' ? '700' : '500',
+                    fontWeight: activeTab === 'HOME' ? '600' : '500',
                   },
                 ]}
               >
@@ -108,33 +115,43 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Clean Center Voice Action Button */}
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => setVoiceSheetVisible(true)}
-              style={[
-                styles.micButton,
-                { backgroundColor: palette.primaryBrown },
-              ]}
-            >
-              <Text style={styles.micLabel}>Voice</Text>
-            </TouchableOpacity>
+            {/* Central Sleek Circular Voice Action Button with Clean Microphone Glyph */}
+            <View style={styles.voiceCenterSlot}>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                onPress={() => setVoiceSheetVisible(true)}
+                style={[
+                  styles.voiceCircleBtn,
+                  { backgroundColor: palette.primaryBrown },
+                ]}
+              >
+                <Feather name="mic" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+              <Text style={styles.voiceLabel}>Voice</Text>
+            </View>
 
             <TouchableOpacity
-              onPress={() => setActiveTab('UDHAAR')}
+              onPress={() => setActiveTab('LEDGER')}
               style={styles.tabItem}
             >
+              <Feather
+                name="book-open"
+                size={18}
+                color={
+                  activeTab === 'LEDGER' ? palette.primaryBrown : '#94A3B8'
+                }
+              />
               <Text
                 style={[
                   styles.tabLabel,
                   {
                     color:
-                      activeTab === 'UDHAAR' ? palette.primaryBrown : '#64748B',
-                    fontWeight: activeTab === 'UDHAAR' ? '700' : '500',
+                      activeTab === 'LEDGER' ? palette.primaryBrown : '#64748B',
+                    fontWeight: activeTab === 'LEDGER' ? '600' : '500',
                   },
                 ]}
               >
-                Udhaar
+                Ledger
               </Text>
             </TouchableOpacity>
           </View>
@@ -161,13 +178,13 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
   },
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    height: 58,
+    height: 64,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
@@ -177,21 +194,34 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    gap: 3,
+    paddingVertical: 6,
   },
   tabLabel: {
-    fontSize: 13,
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 11,
   },
-  micButton: {
-    paddingHorizontal: 22,
-    paddingVertical: 9,
-    borderRadius: 20,
+  voiceCenterSlot: {
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 2,
   },
-  micLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  voiceCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  voiceLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
   },
 });

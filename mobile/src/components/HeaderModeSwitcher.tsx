@@ -7,46 +7,62 @@ import {
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { SYSTEM_FONT_STACK } from '../theme/colors';
+
+function toTitleCase(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word.length > 0
+        ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+        : ''
+    )
+    .join(' ');
+}
 
 export const HeaderModeSwitcher: React.FC = () => {
   const { mode, palette, setMode } = useFinTrackTheme();
   const { user, signOut } = useAuth();
 
+  const formattedUserName = toTitleCase(user?.fullName || 'Account Holder');
+
   return (
     <View style={styles.headerContainer}>
-      {/* Top Row: Clean Brand Title + User Info */}
+      {/* Top Row: Brand Title + Clean Title-Case User Name + Switch User Control */}
       <View style={styles.brandRow}>
         <View>
-          <Text style={[styles.brandName, { color: palette.primaryBrown }]}>
-            FinTrack
-          </Text>
-          <Text style={styles.subtitle}>
-            {palette.modeTitle} • {user?.fullName || 'User'}
-          </Text>
+          <Text style={styles.brandName}>FinTrack</Text>
+          <Text style={styles.subtitle}>{formattedUserName}</Text>
         </View>
 
-        <TouchableOpacity onPress={signOut} style={styles.profileBtn}>
-          <Text style={styles.profileBtnText}>Sign Out</Text>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={signOut}
+          style={styles.switchUserControl}
+        >
+          <Text style={styles.switchUserText}>Switch User</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Clean Minimal Mode Switcher: [ Personal | Business ] */}
-      <View style={styles.switcherTrack}>
+      {/* Sleek Minimalist Segmented Workspace Control: [ Personal | Business ] */}
+      <View style={styles.segmentedTrack}>
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => setMode('PERSONAL')}
           style={[
-            styles.switcherTab,
-            mode === 'PERSONAL' && {
-              backgroundColor: palette.primaryBrown,
-            },
+            styles.segmentItem,
+            mode === 'PERSONAL' && [
+              styles.segmentItemActive,
+              { backgroundColor: palette.primaryBrown },
+            ],
           ]}
         >
           <Text
             style={[
-              styles.switcherText,
+              styles.segmentLabel,
               {
-                color: mode === 'PERSONAL' ? '#FFFFFF' : '#475569',
+                color: mode === 'PERSONAL' ? '#FFFFFF' : '#64748B',
               },
             ]}
           >
@@ -58,17 +74,18 @@ export const HeaderModeSwitcher: React.FC = () => {
           activeOpacity={0.85}
           onPress={() => setMode('BUSINESS')}
           style={[
-            styles.switcherTab,
-            mode === 'BUSINESS' && {
-              backgroundColor: palette.primaryBrown,
-            },
+            styles.segmentItem,
+            mode === 'BUSINESS' && [
+              styles.segmentItemActive,
+              { backgroundColor: palette.primaryBrown },
+            ],
           ]}
         >
           <Text
             style={[
-              styles.switcherText,
+              styles.segmentLabel,
               {
-                color: mode === 'BUSINESS' ? '#FFFFFF' : '#475569',
+                color: mode === 'BUSINESS' ? '#FFFFFF' : '#64748B',
               },
             ]}
           >
@@ -96,42 +113,57 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   brandName: {
-    fontSize: 20,
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 18,
     fontWeight: '700',
+    color: '#0F172A',
     letterSpacing: -0.3,
   },
   subtitle: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
+    fontWeight: '500',
     color: '#64748B',
     marginTop: 2,
   },
-  profileBtn: {
+  switchUserControl: {
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
   },
-  profileBtnText: {
+  switchUserText: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
     fontWeight: '600',
     color: '#475569',
   },
-  switcherTrack: {
+  segmentedTrack: {
     flexDirection: 'row',
     borderRadius: 8,
     padding: 3,
     backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  switcherTab: {
+  segmentItem: {
     flex: 1,
     paddingVertical: 7,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  switcherText: {
+  segmentItemActive: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  segmentLabel: {
+    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
     fontWeight: '600',
   },
