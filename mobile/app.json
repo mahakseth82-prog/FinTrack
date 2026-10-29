@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "FinTrack",
+    "slug": "fintrack",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FAF6F0",
+    "primaryColor": "#6F4E37",
+    "android": {
+      "package": "com.fintrack.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FAF6F0"
+      },
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA"
+      ]
+    }
+  }
+}
+
