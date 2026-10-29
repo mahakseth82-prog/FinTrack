@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
+import { BASE_API_URL } from '../services/api';
 
 export interface FinTrackUser {
   id: string;
   fullName: string;
+  phoneNumber: string;
   email: string;
   preferredLanguage: 'HINGLISH' | 'HINDI' | 'ENGLISH';
 }
@@ -14,10 +16,12 @@ interface AuthContextValue {
   isSupabaseReady: boolean;
   signInWithEmail: (
     email: string,
-    password: string
+    password: string,
+    phoneNumber?: string
   ) => Promise<{ error?: string }>;
-  signUpWithEmail: (
+  signUpWithContactAndGmail: (
     fullName: string,
+    phoneNumber: string,
     email: string,
     password: string
   ) => Promise<{ error?: string }>;
@@ -44,6 +48,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           id: session.user.id,
           fullName:
             session.user.user_metadata?.full_name || 'FinTrack User',
+          phoneNumber:
+            session.user.user_metadata?.phone_number || '',
           email: session.user.email || '',
           preferredLanguage: 'HINGLISH',
         });
@@ -58,6 +64,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             id: session.user.id,
             fullName:
               session.user.user_metadata?.full_name || 'FinTrack User',
+            phoneNumber:
+              session.user.user_metadata?.phone_number || '',
             email: session.user.email || '',
             preferredLanguage: 'HINGLISH',
           });
@@ -74,7 +82,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const signInWithEmail = async (
     email: string,
-    password: string
+    password: string,
+    phoneNumber?: string
   ): Promise<{ error?: string }> => {
     if (!supabase) {
       return {
@@ -85,21 +94,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
+      const cleanEmail = email.trim().toLowerCase();
+      let { error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
         password,
       });
+
+      // If the user's account was stuck waiting for the broken confirmation email link,
+      // auto-confirm via our backend admin endpoint and retry sign-in automatically!
+      if (
+        error &&
+        error.message.toLowerCase().includes('email not confirmed')
+      ) {
+        await fetch(`${BASE_API_URL}/auth/confirm-existing`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: cleanEmail, phoneNumber }),
+        });
+
+        const retry = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+        error = retry.error;
+      }
+
       if (error) {
         return { error: error.message };
       }
       return {};
+    } catch (err: unknown) {
+      return {
+        error: err instanceof Error ? err.message : 'Sign in failed',
+      };
     } finally {
       setIsLoading(false);
     }
   };
 
-  const signUpWithEmail = async (
+  /**
+   * Registers a new account using BOTH Contact Number and Gmail address via
+   * `/api/v1/auth/register` (which sets `email_confirm: true` so no broken email link is needed)
+   * and logs the user in immediately.
+   */
+  const signUpWithContactAndGmail = async (
     fullName: string,
+    phoneNumber: string,
     email: string,
     password: string
   ): Promise<{ error?: string }> => {
@@ -112,19 +152,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanPhone = phoneNumber.trim();
+      const cleanName = fullName.trim() || 'FinTrack User';
+
+      // 1. Register & auto-confirm via Backend Admin API
+      const registerRes = await fetch(`${BASE_API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: cleanName,
+          phoneNumber: cleanPhone,
+          email: cleanEmail,
+          password,
+        }),
       });
-      if (error) {
-        return { error: error.message };
+
+      if (!registerRes.ok) {
+        const errJson = await registerRes.json().catch(() => ({}));
+        return {
+          error:
+            errJson.error ||
+            `Registration failed with status ${registerRes.status}`,
+        };
       }
+
+      // 2. Immediately sign in with the newly confirmed credentials
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+
+      if (signInErr) {
+        return { error: signInErr.message };
+      }
+
       return {};
+    } catch (err: unknown) {
+      return {
+        error:
+          err instanceof Error
+            ? `Could not connect to backend server (${BASE_API_URL}): ${err.message}`
+            : 'Account creation failed',
+      };
     } finally {
       setIsLoading(false);
     }
@@ -144,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         isLoading,
         isSupabaseReady: isSupabaseConfigured,
         signInWithEmail,
-        signUpWithEmail,
+        signUpWithContactAndGmail,
         signOut,
       }}
     >

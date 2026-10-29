@@ -29,7 +29,7 @@ function resolveBackendBaseUrl(): string {
   return configuredUrl;
 }
 
-const BASE_API_URL = resolveBackendBaseUrl();
+export const BASE_API_URL = resolveBackendBaseUrl();
 
 let currentActiveWorkspaceId: string | null = null;
 

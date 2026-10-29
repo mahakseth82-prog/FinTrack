@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
+import authRoutes from './routes/auth';
 import ledgerRoutes from './routes/ledger';
 import voiceRoutes from './routes/voice';
 import reminderRoutes from './routes/reminders';
@@ -29,6 +30,7 @@ app.get('/api/v1/health', (_req, res) => {
 });
 
 // Mount v1 API routes
+app.use('/api/v1', authRoutes);
 app.use('/api/v1', ledgerRoutes);
 app.use('/api/v1', voiceRoutes);
 app.use('/api/v1', reminderRoutes);

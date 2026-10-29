@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  ScrollView,
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -14,33 +15,53 @@ export const AuthScreen: React.FC = () => {
   const { palette } = useFinTrackTheme();
   const {
     signInWithEmail,
-    signUpWithEmail,
+    signUpWithContactAndGmail,
     isLoading,
     isSupabaseReady,
   } = useAuth();
 
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(true);
   const [fullName, setFullName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('+91 ');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     setErrorMsg(null);
+
     if (!email.trim() || !password.trim()) {
-      setErrorMsg('Please enter both your email and password.');
+      setErrorMsg('Kripya apna Gmail address aur Password dono dalein.');
+      return;
+    }
+
+    const digitsOnlyPhone = phoneNumber.replace(/\D/g, '');
+    if (digitsOnlyPhone.length < 10) {
+      setErrorMsg(
+        'Kripya apna valid 10-digit Contact Number (+91...) dalein.'
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('Password kam se kam 6 characters ka hona chahiye.');
       return;
     }
 
     if (isSignUp) {
-      const res = await signUpWithEmail(
+      const res = await signUpWithContactAndGmail(
         fullName.trim() || 'FinTrack User',
+        phoneNumber.trim(),
         email.trim(),
         password
       );
       if (res.error) setErrorMsg(res.error);
     } else {
-      const res = await signInWithEmail(email.trim(), password);
+      const res = await signInWithEmail(
+        email.trim(),
+        password,
+        phoneNumber.trim()
+      );
       if (res.error) setErrorMsg(res.error);
     }
   };
@@ -52,7 +73,10 @@ export const AuthScreen: React.FC = () => {
         { backgroundColor: palette.backgroundCream },
       ]}
     >
-      <View style={styles.inner}>
+      <ScrollView
+        contentContainerStyle={styles.scrollInner}
+        keyboardShouldPersistTaps="handled"
+      >
         <View
           style={[
             styles.logoBadge,
@@ -110,15 +134,72 @@ export const AuthScreen: React.FC = () => {
             },
           ]}
         >
+          {/* Mode Switch Tabs: Create Account vs Sign In */}
+          <View
+            style={[
+              styles.modeTabsRow,
+              {
+                backgroundColor: palette.pillInactiveBg,
+                borderColor: palette.borderLatte,
+              },
+            ]}
+          >
+            <TouchableOpacity
+              onPress={() => {
+                setIsSignUp(true);
+                setErrorMsg(null);
+              }}
+              style={[
+                styles.modeTab,
+                isSignUp && { backgroundColor: palette.primaryBrown },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: isSignUp
+                    ? palette.textOnPrimary
+                    : palette.textEspresso,
+                }}
+              >
+                ✨ Create Account
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                setIsSignUp(false);
+                setErrorMsg(null);
+              }}
+              style={[
+                styles.modeTab,
+                !isSignUp && { backgroundColor: palette.primaryBrown },
+              ]}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: !isSignUp
+                    ? palette.textOnPrimary
+                    : palette.textEspresso,
+                }}
+              >
+                🔑 Sign In
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {isSignUp && (
             <>
               <Text style={[styles.label, { color: palette.textEspresso }]}>
-                Aapka Naam (Full Name)
+                👤 Aapka Naam (Full Name)
               </Text>
               <TextInput
                 value={fullName}
                 onChangeText={setFullName}
-                placeholder="Enter your full name"
+                placeholder="e.g. Aarav Verma"
                 placeholderTextColor={palette.textMocha}
                 style={[
                   styles.input,
@@ -132,13 +213,34 @@ export const AuthScreen: React.FC = () => {
             </>
           )}
 
+          {/* Contact Number (Required for both Create Account & WhatsApp Reminders) */}
           <Text style={[styles.label, { color: palette.textEspresso }]}>
-            Email Address
+            📱 Contact Number (WhatsApp / Mobile No.)
+          </Text>
+          <TextInput
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            placeholder="+91 9876543210"
+            placeholderTextColor={palette.textMocha}
+            keyboardType="phone-pad"
+            style={[
+              styles.input,
+              {
+                backgroundColor: palette.surfaceElevated,
+                borderColor: palette.borderLatte,
+                color: palette.textEspresso,
+              },
+            ]}
+          />
+
+          {/* Gmail Address */}
+          <Text style={[styles.label, { color: palette.textEspresso }]}>
+            📧 Gmail Address
           </Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
-            placeholder="you@example.com"
+            placeholder="yourname@gmail.com"
             placeholderTextColor={palette.textMocha}
             autoCapitalize="none"
             keyboardType="email-address"
@@ -153,7 +255,7 @@ export const AuthScreen: React.FC = () => {
           />
 
           <Text style={[styles.label, { color: palette.textEspresso }]}>
-            Password
+            🔒 Password (Min 6 characters)
           </Text>
           <TextInput
             value={password}
@@ -171,11 +273,16 @@ export const AuthScreen: React.FC = () => {
             ]}
           />
 
+          <Text style={[styles.helperNote, { color: palette.receiveSageGreen }]}>
+            ✅ Instant Auto-Verification: No email link click needed! Your
+            Contact No. & Gmail will be verified immediately.
+          </Text>
+
           {errorMsg && (
             <Text
               style={[styles.errorText, { color: palette.giveTerracottaRed }]}
             >
-              {errorMsg}
+              ⚠️ {errorMsg}
             </Text>
           )}
 
@@ -191,25 +298,14 @@ export const AuthScreen: React.FC = () => {
               style={[styles.primaryBtnText, { color: palette.textOnPrimary }]}
             >
               {isLoading
-                ? 'Authenticating...'
+                ? 'Verifying Contact & Gmail...'
                 : isSignUp
                   ? 'Create FinTrack Account →'
                   : 'Sign In to FinTrack →'}
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setIsSignUp((prev) => !prev)}
-            style={styles.switchModeBtn}
-          >
-            <Text style={[styles.switchModeText, { color: palette.primaryBrown }]}>
-              {isSignUp
-                ? 'Already have an account? Sign In'
-                : 'New to FinTrack? Create an Account'}
-            </Text>
-          </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -218,31 +314,32 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  inner: {
-    flex: 1,
+  scrollInner: {
+    flexGrow: 1,
     paddingHorizontal: 24,
+    paddingVertical: 28,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoBadge: {
-    width: 68,
-    height: 68,
+    width: 64,
+    height: 64,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   logoEmoji: {
-    fontSize: 32,
+    fontSize: 30,
   },
   title: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '800',
   },
   subtitle: {
     fontSize: 13,
     textAlign: 'center',
-    marginTop: 6,
+    marginTop: 4,
     marginBottom: 18,
   },
   checkpointBanner: {
@@ -263,14 +360,28 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
+    maxWidth: 440,
     padding: 20,
     borderRadius: 18,
     borderWidth: 1,
   },
+  modeTabsRow: {
+    flexDirection: 'row',
+    borderRadius: 10,
+    padding: 4,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
   label: {
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 5,
     marginTop: 10,
   },
   input: {
@@ -280,27 +391,25 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     fontSize: 14,
   },
+  helperNote: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 10,
+    lineHeight: 16,
+  },
   errorText: {
     fontSize: 12,
     marginTop: 8,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   primaryBtn: {
-    marginTop: 20,
+    marginTop: 16,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   primaryBtnText: {
     fontSize: 15,
-    fontWeight: '700',
-  },
-  switchModeBtn: {
-    marginTop: 14,
-    alignItems: 'center',
-  },
-  switchModeText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });
