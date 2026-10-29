@@ -208,6 +208,7 @@ export function usePendingDrafts(workspaceId: string | null) {
 
 /**
  * Mutation: Send voice audio or spoken Hindi/Hinglish/English text to Gemini via `/api/v1/voice/parse`.
+ * Automatically saves to Passbook / Udhaar Khata and refreshes all live views.
  */
 export function useParseVoiceDraft(workspaceId: string | null) {
   const queryClient = useQueryClient();
@@ -217,8 +218,22 @@ export function useParseVoiceDraft(workspaceId: string | null) {
       utteranceText?: string;
       audioBase64?: string;
       audioMimeType?: string;
+      autoSave?: boolean;
     }) =>
-      apiFetch<{ draft: IngestionDraftDto }>('/voice/parse', {
+      apiFetch<{
+        autoSaved?: boolean;
+        savedSummary?: {
+          entityTable: string;
+          entityId: string;
+          intent: string;
+          title: string;
+          amountPaise: number;
+          amountFormatted: string;
+          paymentVia: string;
+          categoryName: string;
+        };
+        draft: IngestionDraftDto;
+      }>('/voice/parse', {
         method: 'POST',
         workspaceId,
         body: payload,
@@ -228,6 +243,11 @@ export function useParseVoiceDraft(workspaceId: string | null) {
       queryClient.invalidateQueries({
         queryKey: ['dashboard-summary', workspaceId],
       });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['udhaar-ledger', workspaceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['contact-detail'] });
     },
   });
 }
@@ -245,16 +265,34 @@ export function useClarifyDraft(workspaceId: string | null) {
       audioBase64?: string;
       audioMimeType?: string;
     }) =>
-      apiFetch<{ draft: IngestionDraftDto }>(
-        `/drafts/${payload.draftId}/clarify`,
-        {
-          method: 'POST',
-          workspaceId,
-          body: payload,
-        }
-      ),
+      apiFetch<{
+        autoSaved?: boolean;
+        savedSummary?: {
+          entityTable: string;
+          entityId: string;
+          intent: string;
+          title: string;
+          amountPaise: number;
+          amountFormatted: string;
+          paymentVia: string;
+          categoryName: string;
+        };
+        draft: IngestionDraftDto;
+      }>(`/drafts/${payload.draftId}/clarify`, {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['udhaar-ledger', workspaceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['contact-detail'] });
     },
   });
 }

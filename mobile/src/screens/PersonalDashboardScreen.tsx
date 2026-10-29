@@ -14,6 +14,7 @@ import {
   useBudgets,
   useContactsList,
   useCreateTransaction,
+  useParseVoiceDraft,
 } from '../hooks/useFinTrackQueries';
 import { TransactionDto, TransactionKind } from '../types/ledger';
 import { formatINR } from '../utils/paise';
@@ -87,7 +88,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const budgetsQuery = useBudgets(activeWorkspaceId);
   const udhaarQuery = useContactsList(activeWorkspaceId);
   const createTxMutation = useCreateTransaction(activeWorkspaceId);
+  const parseVoiceMutation = useParseVoiceDraft(activeWorkspaceId);
 
+  const [quickInput, setQuickInput] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [txKind, setTxKind] = useState<TransactionKind>('EXPENSE');
   const [merchant, setMerchant] = useState('');
@@ -180,6 +183,16 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     );
   }
 
+  const handleQuickSave = async () => {
+    const trimmed = quickInput.trim();
+    if (!trimmed) return;
+    await parseVoiceMutation.mutateAsync({
+      utteranceText: trimmed,
+      autoSave: true,
+    });
+    setQuickInput('');
+  };
+
   const handleSaveTransaction = async () => {
     if (!amountRupees.trim() || Number(amountRupees) <= 0) return;
     await createTxMutation.mutateAsync({
@@ -241,6 +254,27 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               {formatINR(summary?.netBalancePaise || 0)}
             </Text>
           </View>
+        </View>
+
+        {/* Inline 1-Line Quick Add Bar (Auto-saves directly without extra pages) */}
+        <View style={styles.quickAddRow}>
+          <TextInput
+            value={quickInput}
+            onChangeText={setQuickInput}
+            placeholder='Quick add: e.g. "Petrol 300" or "DMart 450"'
+            placeholderTextColor="#94A3B8"
+            onSubmitEditing={handleQuickSave}
+            style={styles.quickAddInput}
+          />
+          <TouchableOpacity
+            onPress={handleQuickSave}
+            disabled={parseVoiceMutation.isPending}
+            style={styles.quickAddBtn}
+          >
+            <Text style={styles.quickAddBtnText}>
+              {parseVoiceMutation.isPending ? '...' : 'Save'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {(summary?.detectedUpiCount || 0) > 0 && (
@@ -569,6 +603,37 @@ const styles = StyleSheet.create({
     height: 30,
     backgroundColor: '#E2E8F0',
     marginHorizontal: 10,
+  },
+  quickAddRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  quickAddInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  quickAddBtn: {
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickAddBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   pendingDraftsStrip: {
     marginTop: 12,

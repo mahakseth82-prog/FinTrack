@@ -7,7 +7,7 @@ import {
   TextInput,
   Animated,
   StyleSheet,
-  ScrollView,
+  Platform,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { useFinTrackTheme } from '../context/ThemeContext';
@@ -17,12 +17,7 @@ import {
   useConfirmDraft,
   useDismissDraft,
 } from '../hooks/useFinTrackQueries';
-import {
-  IngestionDraftDto,
-  DraftIntent,
-  PaymentChannel,
-} from '../types/ledger';
-import { formatINR, rupeesToPaise } from '../utils/paise';
+import { IngestionDraftDto } from '../types/ledger';
 
 interface VoiceAssistantSheetProps {
   visible: boolean;
@@ -30,12 +25,35 @@ interface VoiceAssistantSheetProps {
   onClose: () => void;
 }
 
+/**
+ * Helper to convert a recorded local file/blob URI into a Base64 string on both Web & Native.
+ */
+async function uriToBase64(
+  uri: string
+): Promise<{ base64: string; mimeType: string }> {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  const mimeType =
+    blob.type || (Platform.OS === 'web' ? 'audio/webm' : 'audio/mp4');
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve({ base64, mimeType });
+    };
+    reader.onerror = () => reject(new Error('Failed to read audio recording'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   visible,
   initialDraft = null,
   onClose,
 }) => {
-  const { palette, activeWorkspaceId } = useFinTrackTheme();
+  const { activeWorkspaceId } = useFinTrackTheme();
 
   const parseVoiceMutation = useParseVoiceDraft(activeWorkspaceId);
   const clarifyMutation = useClarifyDraft(activeWorkspaceId);
@@ -52,24 +70,16 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
     null
   );
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [savedBanner, setSavedBanner] = useState<string | null>(null);
 
-  // Editable confirmation fields
-  const [editIntent, setEditIntent] = useState<DraftIntent>('EXPENSE');
-  const [editAmountRupees, setEditAmountRupees] = useState('');
-  const [editContactName, setEditContactName] = useState('');
-  const [editCategoryName, setEditCategoryName] = useState('');
-  const [editDueDate, setEditDueDate] = useState('');
-  const [editPaymentVia, setEditPaymentVia] = useState<PaymentChannel>('UPI');
-  const [editDescription, setEditDescription] = useState('');
-
-  // Animated 5-bar waveform for listening state
+  const speechRecRef = useRef<any>(null);
+  const latestTranscriptRef = useRef<string>('');
   const waveAnim = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
     setCurrentDraft(initialDraft);
-    if (initialDraft) {
-      hydrateEditableFields(initialDraft);
-    }
+    setSavedBanner(null);
+    setErrorText(null);
   }, [initialDraft, visible]);
 
   useEffect(() => {
@@ -81,12 +91,12 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
       Animated.sequence([
         Animated.timing(waveAnim, {
           toValue: 1,
-          duration: 380,
+          duration: 350,
           useNativeDriver: true,
         }),
         Animated.timing(waveAnim, {
           toValue: 0.3,
-          duration: 380,
+          duration: 350,
           useNativeDriver: true,
         }),
       ])
@@ -95,36 +105,159 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
     return () => loop.stop();
   }, [isRecording, parseVoiceMutation.isPending, waveAnim]);
 
-  const hydrateEditableFields = (draft: IngestionDraftDto) => {
-    setEditIntent(draft.intent);
-    setEditAmountRupees(
-      draft.extractedAmountRupees !== null
-        ? String(draft.extractedAmountRupees)
-        : ''
-    );
-    setEditContactName(draft.extractedContactName || '');
-    setEditCategoryName(draft.extractedCategoryName || 'General');
-    setEditDueDate(draft.extractedDueDate || '');
-    setEditPaymentVia(draft.paymentVia || 'UPI');
-    setEditDescription(draft.description || draft.rawInputText || '');
-  };
-
   const handleResetAndClose = () => {
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.abort();
+      } catch {
+        // ignore
+      }
+      speechRecRef.current = null;
+    }
     setCurrentDraft(null);
     setUtteranceInput('');
     setClarificationInput('');
     setErrorText(null);
+    setSavedBanner(null);
     setIsRecording(false);
     onClose();
   };
 
-  const startMicRecording = async () => {
+  /**
+   * Automatically parses and saves the spoken/typed entry directly into Passbook / Udhaar Khata.
+   * No second page for merchant name, category, etc.
+   */
+  const submitAndAutoSave = async (params: {
+    text?: string;
+    audioBase64?: string;
+    audioMimeType?: string;
+  }) => {
+    const cleanText = params.text?.trim() || '';
+    if (!cleanText && !params.audioBase64) {
+      setErrorText(
+        'Please speak or type an entry (e.g. "Petrol 300" or "Ravi ko 500 udhaar")'
+      );
+      return;
+    }
+
+    setErrorText(null);
     try {
-      setErrorText(null);
+      const res = await parseVoiceMutation.mutateAsync({
+        utteranceText: cleanText || undefined,
+        audioBase64: params.audioBase64,
+        audioMimeType: params.audioMimeType,
+        autoSave: true,
+      });
+
+      if (res.autoSaved && res.savedSummary) {
+        const s = res.savedSummary;
+        const sign = s.intent === 'INCOME' || s.intent === 'UDHAAR_REPAYMENT' ? '+' : '-';
+        setSavedBanner(
+          `Saved: ${s.title} (${sign} ${s.amountFormatted} • ${s.paymentVia})`
+        );
+        setUtteranceInput('');
+        latestTranscriptRef.current = '';
+        setTimeout(() => {
+          handleResetAndClose();
+        }, 850);
+        return;
+      }
+
+      // Only if no amount was mentioned at all (e.g., user just said "Petrol")
+      if (res.draft.status === 'NEEDS_CLARIFICATION') {
+        setCurrentDraft(res.draft);
+      } else {
+        // Fallback auto-confirm if draft has an amount
+        await confirmMutation.mutateAsync({
+          draftId: res.draft.id,
+        });
+        setSavedBanner('Entry saved to Passbook');
+        setTimeout(() => {
+          handleResetAndClose();
+        }, 750);
+      }
+    } catch (err: unknown) {
+      setErrorText(
+        err instanceof Error ? err.message : 'Could not save voice entry'
+      );
+    }
+  };
+
+  /**
+   * Starts microphone listening:
+   * - On Web (Chrome/Edge): Uses browser Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`)
+   *   with live Hindi/Hinglish/English transcription AND auto-saves as soon as you finish speaking.
+   * - On Mobile / Fallback: Uses `expo-av` audio recording and sends Base64 audio to Gemini.
+   */
+  const startMicRecording = async () => {
+    setErrorText(null);
+    setSavedBanner(null);
+    latestTranscriptRef.current = '';
+
+    // 1. Web Browser Live Speech Recognition (Chrome / Edge / Android WebView)
+    if (Platform.OS === 'web') {
+      const webGlobal = globalThis as any;
+      const SpeechRecognition =
+        webGlobal.SpeechRecognition || webGlobal.webkitSpeechRecognition;
+
+      if (SpeechRecognition) {
+        try {
+          const recognition = new SpeechRecognition();
+          recognition.lang = 'hi-IN'; // Understands Hindi, Hinglish & Indian English
+          recognition.continuous = false;
+          recognition.interimResults = true;
+
+          recognition.onstart = () => {
+            setIsRecording(true);
+          };
+
+          recognition.onresult = (event: any) => {
+            let transcript = '';
+            for (let i = 0; i < event.results.length; i++) {
+              transcript += event.results[i][0].transcript;
+            }
+            const trimmed = transcript.trim();
+            latestTranscriptRef.current = trimmed;
+            setUtteranceInput(trimmed);
+          };
+
+          recognition.onerror = (event: any) => {
+            setIsRecording(false);
+            if (event?.error === 'not-allowed') {
+              setErrorText(
+                'Microphone permission blocked in browser. Please allow microphone access in the address bar or type below.'
+              );
+            } else {
+              setErrorText(
+                'Could not hear clearly. Please try speaking again or type below.'
+              );
+            }
+          };
+
+          recognition.onend = () => {
+            setIsRecording(false);
+            speechRecRef.current = null;
+            const spoken = latestTranscriptRef.current.trim();
+            if (spoken.length > 0) {
+              void submitAndAutoSave({ text: spoken });
+            }
+          };
+
+          speechRecRef.current = recognition;
+          recognition.start();
+          return;
+        } catch {
+          // Fall through to expo-av recording if SpeechRecognition fails to initialize
+        }
+      }
+    }
+
+    // 2. Native Mobile (Expo Go) or Non-Chromium Browser Audio Recording
+    try {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) {
         setErrorText(
-          'Microphone permission not granted. You can also type your Hindi/Hinglish voice command below.'
+          'Microphone permission not granted. Please allow microphone permission or type below.'
         );
         return;
       }
@@ -147,42 +280,46 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   };
 
   const stopMicRecording = async () => {
-    if (!recordingObj) return;
+    // If Web SpeechRecognition is active, stopping it triggers `onend` which auto-saves
+    if (speechRecRef.current) {
+      try {
+        speechRecRef.current.stop();
+      } catch {
+        setIsRecording(false);
+      }
+      return;
+    }
+
+    if (!recordingObj) {
+      setIsRecording(false);
+      return;
+    }
+
     setIsRecording(false);
     try {
       await recordingObj.stopAndUnloadAsync();
       const uri = recordingObj.getURI();
       setRecordingObj(null);
-      if (uri && utteranceInput.trim().length > 0) {
-        await handleSendUtterance();
+
+      if (uri) {
+        const { base64, mimeType } = await uriToBase64(uri);
+        await submitAndAutoSave({
+          text: utteranceInput.trim() || undefined,
+          audioBase64: base64,
+          audioMimeType: mimeType,
+        });
+      } else if (utteranceInput.trim()) {
+        await submitAndAutoSave({ text: utteranceInput.trim() });
+      }
+    } catch (err: unknown) {
+      setRecordingObj(null);
+      if (utteranceInput.trim()) {
+        await submitAndAutoSave({ text: utteranceInput.trim() });
       } else {
         setErrorText(
-          'Audio captured! Please confirm or enter your spoken Hindi/Hinglish text below to send to Gemini.'
+          err instanceof Error ? err.message : 'Failed to process audio'
         );
       }
-    } catch {
-      setRecordingObj(null);
-    }
-  };
-
-  const handleSendUtterance = async () => {
-    if (!utteranceInput.trim()) {
-      setErrorText(
-        'Kripya kuch bolein ya likhein (e.g. "Ravi ko 2000 rupaye udhaar diye, woh 10 November ko wapas karega")'
-      );
-      return;
-    }
-    setErrorText(null);
-    try {
-      const res = await parseVoiceMutation.mutateAsync({
-        utteranceText: utteranceInput.trim(),
-      });
-      setCurrentDraft(res.draft);
-      hydrateEditableFields(res.draft);
-    } catch (err: unknown) {
-      setErrorText(
-        err instanceof Error ? err.message : 'Failed to parse voice with Gemini'
-      );
     }
   };
 
@@ -195,37 +332,20 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
         clarificationAnswer: clarificationInput.trim(),
       });
       setClarificationInput('');
-      setCurrentDraft(res.draft);
-      hydrateEditableFields(res.draft);
-    } catch (err: unknown) {
-      setErrorText(
-        err instanceof Error ? err.message : 'Failed to clarify draft'
-      );
-    }
-  };
 
-  const handleConfirmAndSave = async () => {
-    if (!currentDraft) return;
-    if (!editAmountRupees.trim() || Number(editAmountRupees) <= 0) {
-      setErrorText('Please enter a valid amount in Rupees before confirming.');
-      return;
-    }
-    setErrorText(null);
-    try {
-      await confirmMutation.mutateAsync({
-        draftId: currentDraft.id,
-        intent: editIntent,
-        amountRupees: editAmountRupees.trim(),
-        contactName: editContactName.trim(),
-        categoryName: editCategoryName.trim(),
-        dueDate: editDueDate.trim() || undefined,
-        paymentVia: editPaymentVia,
-        description: editDescription.trim(),
-      });
-      handleResetAndClose();
+      if (res.autoSaved && res.savedSummary) {
+        const s = res.savedSummary;
+        setSavedBanner(`Saved: ${s.title} (${s.amountFormatted})`);
+        setTimeout(() => {
+          handleResetAndClose();
+        }, 800);
+        return;
+      }
+
+      setCurrentDraft(res.draft);
     } catch (err: unknown) {
       setErrorText(
-        err instanceof Error ? err.message : 'Failed to confirm & save draft'
+        err instanceof Error ? err.message : 'Failed to save entry'
       );
     }
   };
@@ -238,495 +358,176 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
     try {
       await dismissMutation.mutateAsync(currentDraft.id);
       handleResetAndClose();
-    } catch (err: unknown) {
-      setErrorText(
-        err instanceof Error ? err.message : 'Failed to dismiss draft'
-      );
+    } catch {
+      handleResetAndClose();
     }
   };
 
-  let previewPaise = 0;
-  try {
-    if (editAmountRupees.trim()) {
-      previewPaise = rupeesToPaise(editAmountRupees.trim());
-    }
-  } catch {
-    previewPaise = 0;
-  }
+  const isBusy =
+    parseVoiceMutation.isPending ||
+    clarifyMutation.isPending ||
+    confirmMutation.isPending;
 
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal visible={visible} transparent animationType="fade">
       <View style={styles.backdrop}>
-        <View
-          style={[
-            styles.sheetContainer,
-            {
-              backgroundColor: palette.surfaceBeige,
-              borderColor: palette.borderLatte,
-            },
-          ]}
-        >
-          {/* Sheet Header */}
+        <View style={styles.sheetContainer}>
+          {/* Clean Header */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={[styles.sheetTag, { color: palette.accentWarm }]}>
-                🎙️ FINTRACK AI VOICE ASSISTANT (GEMINI)
-              </Text>
-              <Text style={[styles.sheetTitle, { color: palette.textEspresso }]}>
-                {!currentDraft
-                  ? 'Bol Kar Hisaab Likhein'
-                  : currentDraft.status === 'NEEDS_CLARIFICATION'
-                    ? '🤔 Chota Sa Sawal (Clarification)'
-                    : '✅ Draft Transaction Card'}
+              <Text style={styles.sheetTitle}>Quick Voice / Text Entry</Text>
+              <Text style={styles.sheetSubtitle}>
+                Speak or type — saves directly to Passbook
               </Text>
             </View>
 
             <TouchableOpacity
               onPress={handleResetAndClose}
-              style={[
-                styles.closeBtn,
-                {
-                  backgroundColor: palette.backgroundCream,
-                  borderColor: palette.borderLatte,
-                },
-              ]}
+              style={styles.closeBtn}
             >
-              <Text style={{ color: palette.textEspresso, fontWeight: '800' }}>
-                ✕
-              </Text>
+              <Text style={styles.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
-          >
-            {/* STEP 1: SPEAK OR TYPE HINDI / HINGLISH / ENGLISH */}
-            {!currentDraft && (
-              <>
-                <View
-                  style={[
-                    styles.waveformCard,
-                    {
-                      backgroundColor: palette.backgroundCream,
-                      borderColor: palette.borderLatte,
-                    },
-                  ]}
-                >
-                  <View style={styles.waveBarsRow}>
-                    {[0.6, 1.0, 0.8, 1.2, 0.9, 1.1, 0.7].map((mult, idx) => (
-                      <Animated.View
-                        key={idx}
-                        style={[
-                          styles.waveBar,
-                          {
-                            backgroundColor: isRecording
-                              ? palette.giveTerracottaRed
-                              : palette.primaryBrown,
-                            transform: [
-                              {
-                                scaleY: Animated.multiply(waveAnim, mult),
-                              },
-                            ],
-                          },
-                        ]}
-                      />
-                    ))}
-                  </View>
+          {/* Auto-Saved Confirmation Banner */}
+          {savedBanner && (
+            <View style={styles.savedBannerBox}>
+              <Text style={styles.savedBannerText}>{savedBanner}</Text>
+            </View>
+          )}
 
-                  <Text
-                    style={[styles.waveHint, { color: palette.textMocha }]}
-                  >
-                    {isRecording
-                      ? '🔴 Sun Raha Hoon... Speak in Hindi, Hinglish, or English'
-                      : parseVoiceMutation.isPending
-                        ? '🤖 Gemini AI is extracting draft...'
-                        : 'Tap Mic or enter spoken Hindi / Hinglish below'}
-                  </Text>
-
-                  <TouchableOpacity
-                    onPress={
-                      isRecording ? stopMicRecording : startMicRecording
-                    }
-                    style={[
-                      styles.recordCircleBtn,
-                      {
-                        backgroundColor: isRecording
-                          ? palette.giveTerracottaRed
-                          : palette.primaryBrown,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: palette.textOnPrimary,
-                        fontWeight: '800',
-                        fontSize: 13,
-                      }}
-                    >
-                      {isRecording ? '⏹️ Stop Recording' : '🎙️ Hold / Tap Mic'}
-                    </Text>
-                  </TouchableOpacity>
+          {/* Main Input View */}
+          {!currentDraft && (
+            <View style={styles.bodyWrap}>
+              {/* Clean Mic Control Box */}
+              <View style={styles.micBox}>
+                <View style={styles.waveBarsRow}>
+                  {[0.6, 1.0, 0.8, 1.2, 0.9].map((mult, idx) => (
+                    <Animated.View
+                      key={idx}
+                      style={[
+                        styles.waveBar,
+                        {
+                          backgroundColor: isRecording ? '#B91C1C' : '#0F172A',
+                          transform: [
+                            {
+                              scaleY: Animated.multiply(waveAnim, mult),
+                            },
+                          ],
+                        },
+                      ]}
+                    />
+                  ))}
                 </View>
 
-                <Text style={[styles.label, { color: palette.textEspresso }]}>
-                  Spoken Hindi / Hinglish / English Input:
+                <Text style={styles.micStatusText}>
+                  {isRecording
+                    ? 'Listening... Speak now (e.g. "Petrol 300" or "Ravi ko 500 udhaar")'
+                    : isBusy
+                      ? 'Saving entry to Passbook...'
+                      : 'Tap Mic to speak, or type in a single line below'}
                 </Text>
-                <TextInput
-                  value={utteranceInput}
-                  onChangeText={setUtteranceInput}
-                  multiline
-                  placeholder='e.g. "Ravi ko 2,000 rupaye udhaar diye, woh 10 November ko wapas karega"'
-                  placeholderTextColor={palette.textMocha}
-                  style={[
-                    styles.textArea,
-                    {
-                      backgroundColor: palette.surfaceElevated,
-                      borderColor: palette.borderLatte,
-                      color: palette.textEspresso,
-                    },
-                  ]}
-                />
 
                 <TouchableOpacity
-                  onPress={handleSendUtterance}
-                  disabled={parseVoiceMutation.isPending}
+                  onPress={isRecording ? stopMicRecording : startMicRecording}
+                  disabled={isBusy}
                   style={[
-                    styles.primaryActionBtn,
-                    { backgroundColor: palette.primaryBrown },
+                    styles.micButton,
+                    isRecording && styles.micButtonRecording,
                   ]}
                 >
-                  <Text
-                    style={{
-                      color: palette.textOnPrimary,
-                      fontWeight: '800',
-                      fontSize: 14,
-                    }}
-                  >
-                    {parseVoiceMutation.isPending
-                      ? '🤖 Extracting Draft via Gemini...'
-                      : '✨ Create AI Draft →'}
+                  <Text style={styles.micButtonText}>
+                    {isRecording ? 'Stop & Save' : 'Tap to Speak'}
                   </Text>
                 </TouchableOpacity>
-              </>
-            )}
+              </View>
 
-            {/* STEP 2: AMBIGUITY FOLLOW-UP QUESTION */}
-            {currentDraft &&
-              currentDraft.status === 'NEEDS_CLARIFICATION' && (
-                <View
-                  style={[
-                    styles.clarifyBox,
-                    {
-                      backgroundColor: palette.warningAmberTint,
-                      borderColor: palette.accentWarm,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.clarifyBadge,
-                      { color: palette.warningAmber },
-                    ]}
-                  >
-                    🤖 AI FOLLOW-UP QUESTION
-                  </Text>
-                  <Text
-                    style={[
-                      styles.clarifyYouSaid,
-                      { color: palette.textMocha },
-                    ]}
-                  >
-                    You said: &ldquo;{currentDraft.rawInputText}&rdquo;
-                  </Text>
-                  <Text
-                    style={[
-                      styles.clarifyQuestionText,
-                      { color: palette.textEspresso },
-                    ]}
-                  >
-                    {currentDraft.ambiguityQuestion}
-                  </Text>
-
-                  <TextInput
-                    value={clarificationInput}
-                    onChangeText={setClarificationInput}
-                    placeholder="Apna jawab likhein (e.g. Udhaar diye hain 15 Nov tak)"
-                    placeholderTextColor={palette.textMocha}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: palette.surfaceElevated,
-                        borderColor: palette.borderLatte,
-                        color: palette.textEspresso,
-                        marginTop: 10,
-                      },
-                    ]}
-                  />
-
-                  <View style={styles.rowActions}>
-                    <TouchableOpacity
-                      onPress={handleDismiss}
-                      style={[
-                        styles.secondaryBtn,
-                        { borderColor: palette.borderLatte },
-                      ]}
-                    >
-                      <Text
-                        style={{ color: palette.textMocha, fontWeight: '700' }}
-                      >
-                        Cancel
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSendClarification}
-                      disabled={clarifyMutation.isPending}
-                      style={[
-                        styles.confirmBtn,
-                        { backgroundColor: palette.primaryBrown },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: palette.textOnPrimary,
-                          fontWeight: '800',
-                        }}
-                      >
-                        {clarifyMutation.isPending
-                          ? 'Updating Draft...'
-                          : 'Reply to AI →'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-            {/* STEP 3: EDITABLE DRAFT TRANSACTION CARD (Golden Rule #1) */}
-            {currentDraft &&
-              currentDraft.status === 'PENDING_CONFIRMATION' && (
-                <View
-                  style={[
-                    styles.draftCard,
-                    {
-                      backgroundColor: palette.backgroundCream,
-                      borderColor: palette.borderLatte,
-                    },
-                  ]}
-                >
-                  <View style={styles.draftTopBadgeRow}>
-                    <Text
-                      style={[
-                        styles.draftSourceTag,
-                        { color: palette.primaryBrown },
-                      ]}
-                    >
-                      🎙️ {currentDraft.source} DRAFT •{' '}
-                      {Math.round(currentDraft.aiConfidence * 100)}% AI Match
-                    </Text>
-                    <Text
-                      style={[
-                        styles.paisePreviewTag,
-                        { color: palette.receiveSageGreen },
-                      ]}
-                    >
-                      {previewPaise > 0
-                        ? `${formatINR(previewPaise)} (${previewPaise} paise)`
-                        : 'Enter Amount'}
-                    </Text>
-                  </View>
-
-                  <Text
-                    style={[
-                      styles.transcriptQuote,
-                      { color: palette.textMocha },
-                    ]}
-                  >
-                    &ldquo;{currentDraft.rawInputText}&rdquo;
-                  </Text>
-
-                  {/* Intent Selector Chips */}
-                  <Text
-                    style={[styles.label, { color: palette.textEspresso }]}
-                  >
-                    Entry Type (Intent)
-                  </Text>
-                  <View style={styles.intentChipsWrap}>
-                    {(
-                      [
-                        { id: 'UDHAAR_GAVE', label: '🔴 Udhaar Diya' },
-                        { id: 'UDHAAR_REPAYMENT', label: '🟢 Wapas Mila' },
-                        { id: 'UDHAAR_GOT', label: '🟠 Udhaar Liya' },
-                        { id: 'EXPENSE', label: '💸 Kharcha' },
-                        { id: 'INCOME', label: '💰 Kamaai' },
-                      ] as { id: DraftIntent; label: string }[]
-                    ).map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        onPress={() => setEditIntent(item.id)}
-                        style={[
-                          styles.intentChip,
-                          {
-                            backgroundColor:
-                              editIntent === item.id
-                                ? palette.primaryBrown
-                                : palette.surfaceBeige,
-                            borderColor: palette.borderLatte,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            fontSize: 11,
-                            fontWeight: '700',
-                            color:
-                              editIntent === item.id
-                                ? palette.textOnPrimary
-                                : palette.textEspresso,
-                          }}
-                        >
-                          {item.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <Text
-                    style={[styles.label, { color: palette.textEspresso }]}
-                  >
-                    Amount (in ₹ Rupees)
-                  </Text>
-                  <TextInput
-                    value={editAmountRupees}
-                    onChangeText={setEditAmountRupees}
-                    keyboardType="numeric"
-                    placeholder="2000"
-                    placeholderTextColor={palette.textMocha}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: palette.surfaceElevated,
-                        borderColor: palette.borderLatte,
-                        color: palette.textEspresso,
-                      },
-                    ]}
-                  />
-
-                  <Text
-                    style={[styles.label, { color: palette.textEspresso }]}
-                  >
-                    Contact / Merchant Name
-                  </Text>
-                  <TextInput
-                    value={editContactName}
-                    onChangeText={setEditContactName}
-                    placeholder="Ravi Sharma / DMart"
-                    placeholderTextColor={palette.textMocha}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: palette.surfaceElevated,
-                        borderColor: palette.borderLatte,
-                        color: palette.textEspresso,
-                      },
-                    ]}
-                  />
-
-                  {(editIntent === 'UDHAAR_GAVE' ||
-                    editIntent === 'UDHAAR_GOT') && (
-                    <>
-                      <Text
-                        style={[styles.label, { color: palette.textEspresso }]}
-                      >
-                        Due Date (YYYY-MM-DD)
-                      </Text>
-                      <TextInput
-                        value={editDueDate}
-                        onChangeText={setEditDueDate}
-                        placeholder="2026-11-10"
-                        placeholderTextColor={palette.textMocha}
-                        style={[
-                          styles.input,
-                          {
-                            backgroundColor: palette.surfaceElevated,
-                            borderColor: palette.borderLatte,
-                            color: palette.textEspresso,
-                          },
-                        ]}
-                      />
-                    </>
-                  )}
-
-                  <Text
-                    style={[styles.label, { color: palette.textEspresso }]}
-                  >
-                    Note / Summary
-                  </Text>
-                  <TextInput
-                    value={editDescription}
-                    onChangeText={setEditDescription}
-                    placeholder="Summary note"
-                    placeholderTextColor={palette.textMocha}
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: palette.surfaceElevated,
-                        borderColor: palette.borderLatte,
-                        color: palette.textEspresso,
-                      },
-                    ]}
-                  />
-
-                  <View style={styles.rowActions}>
-                    <TouchableOpacity
-                      onPress={handleDismiss}
-                      disabled={dismissMutation.isPending}
-                      style={[
-                        styles.secondaryBtn,
-                        { borderColor: palette.giveTerracottaRed },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: palette.giveTerracottaRed,
-                          fontWeight: '700',
-                        }}
-                      >
-                        🗑️ Dismiss
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      onPress={handleConfirmAndSave}
-                      disabled={confirmMutation.isPending}
-                      style={[
-                        styles.confirmBtn,
-                        { backgroundColor: palette.receiveSageGreen },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: palette.textOnPrimary,
-                          fontWeight: '800',
-                          fontSize: 14,
-                        }}
-                      >
-                        {confirmMutation.isPending
-                          ? 'Saving to Khata...'
-                          : '✅ Confirm & Save'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-            {errorText && (
-              <Text
-                style={[styles.errorMsg, { color: palette.giveTerracottaRed }]}
-              >
-                ⚠️ {errorText}
+              {/* Single-Line Quick Text Input (Auto-Saves Immediately) */}
+              <Text style={styles.inputLabel}>
+                Or write in one line (Auto-saves immediately):
               </Text>
-            )}
-          </ScrollView>
+              <TextInput
+                value={utteranceInput}
+                onChangeText={setUtteranceInput}
+                placeholder='e.g. "DMart 450", "Petrol 300", "Ravi ko 2000 udhaar"'
+                placeholderTextColor="#94A3B8"
+                onSubmitEditing={() =>
+                  submitAndAutoSave({ text: utteranceInput })
+                }
+                style={styles.textInput}
+              />
+
+              {/* Quick Example Pills for 1-Tap Testing */}
+              <View style={styles.examplesRow}>
+                {[
+                  'Petrol 300',
+                  'Chai & Snacks 120',
+                  'Ravi ko 500 udhaar',
+                ].map((sample) => (
+                  <TouchableOpacity
+                    key={sample}
+                    onPress={() => setUtteranceInput(sample)}
+                    style={styles.examplePill}
+                  >
+                    <Text style={styles.examplePillText}>{sample}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                onPress={() => submitAndAutoSave({ text: utteranceInput })}
+                disabled={isBusy}
+                style={[styles.saveBtn, isBusy && { opacity: 0.6 }]}
+              >
+                <Text style={styles.saveBtnText}>
+                  {isBusy ? 'Saving to Passbook...' : 'Save Entry'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Only shown if the user didn't mention any rupee amount at all */}
+          {currentDraft && currentDraft.status === 'NEEDS_CLARIFICATION' && (
+            <View style={styles.clarifyBox}>
+              <Text style={styles.clarifyYouSaid}>
+                Entry: &ldquo;{currentDraft.rawInputText}&rdquo;
+              </Text>
+              <Text style={styles.clarifyQuestionText}>
+                {currentDraft.ambiguityQuestion ||
+                  'Please enter the amount in Rupees:'}
+              </Text>
+
+              <TextInput
+                value={clarificationInput}
+                onChangeText={setClarificationInput}
+                keyboardType="numeric"
+                placeholder="Enter amount (e.g. 300)"
+                placeholderTextColor="#94A3B8"
+                onSubmitEditing={handleSendClarification}
+                style={styles.textInput}
+              />
+
+              <View style={styles.rowActions}>
+                <TouchableOpacity
+                  onPress={handleDismiss}
+                  style={styles.cancelBtn}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleSendClarification}
+                  disabled={clarifyMutation.isPending}
+                  style={styles.confirmBtn}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {clarifyMutation.isPending ? 'Saving...' : 'Save Now'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {errorText && <Text style={styles.errorMsg}>{errorText}</Text>}
         </View>
       </View>
     </Modal>
@@ -736,15 +537,19 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(44, 30, 22, 0.58)',
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
     justifyContent: 'flex-end',
+    alignItems: 'center',
   },
   sheetContainer: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: '88%',
     borderTopWidth: 1,
+    borderColor: '#E2E8F0',
   },
   headerRow: {
     flexDirection: 'row',
@@ -752,157 +557,182 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
-  sheetTag: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.7,
-  },
   sheetTitle: {
-    fontSize: 19,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  sheetSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
     marginTop: 2,
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 6,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  waveformCard: {
-    borderRadius: 16,
-    padding: 16,
+  closeBtnText: {
+    color: '#0F172A',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  savedBannerBox: {
+    backgroundColor: '#F0FDF4',
     borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  savedBannerText: {
+    color: '#15803D',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  bodyWrap: {
+    gap: 10,
+  },
+  micBox: {
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   waveBarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    height: 44,
+    gap: 6,
+    height: 32,
   },
   waveBar: {
-    width: 7,
-    height: 32,
-    borderRadius: 4,
+    width: 5,
+    height: 24,
+    borderRadius: 3,
   },
-  waveHint: {
+  micStatusText: {
     fontSize: 12,
-    fontWeight: '600',
+    color: '#475569',
     textAlign: 'center',
   },
-  recordCircleBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 20,
+  micButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
   },
-  label: {
-    fontSize: 12,
+  micButtonRecording: {
+    backgroundColor: '#B91C1C',
+  },
+  micButtonText: {
+    color: '#FFFFFF',
     fontWeight: '700',
-    marginTop: 6,
+    fontSize: 13,
   },
-  textArea: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 74,
-    fontSize: 14,
-    textAlignVertical: 'top',
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-  },
-  primaryActionBtn: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
     marginTop: 4,
   },
-  clarifyBox: {
-    borderRadius: 16,
-    padding: 16,
+  textInput: {
     borderWidth: 1,
-    gap: 6,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
   },
-  clarifyBadge: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  clarifyYouSaid: {
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  clarifyQuestionText: {
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  draftCard: {
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    gap: 8,
-  },
-  draftTopBadgeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  draftSourceTag: {
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  paisePreviewTag: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  transcriptQuote: {
-    fontSize: 12,
-    fontStyle: 'italic',
-    marginBottom: 4,
-  },
-  intentChipsWrap: {
+  examplesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
-  intentChip: {
+  examplePill: {
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  examplePillText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  saveBtn: {
+    backgroundColor: '#0F172A',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  clarifyBox: {
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    gap: 10,
+  },
+  clarifyYouSaid: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  clarifyQuestionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   rowActions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 14,
+    marginTop: 4,
   },
-  secondaryBtn: {
+  cancelBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
     borderWidth: 1,
+    borderColor: '#CBD5E1',
     alignItems: 'center',
+  },
+  cancelBtnText: {
+    color: '#475569',
+    fontWeight: '600',
+    fontSize: 13,
   },
   confirmBtn: {
     flex: 2,
-    paddingVertical: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
     alignItems: 'center',
   },
   errorMsg: {
     fontSize: 12,
-    fontWeight: '700',
-    marginTop: 6,
+    fontWeight: '600',
+    color: '#B91C1C',
     textAlign: 'center',
+    marginTop: 10,
   },
 });
