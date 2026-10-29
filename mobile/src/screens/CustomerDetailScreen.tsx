@@ -11,10 +11,16 @@ import {
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
-  useLedger,
-  PaymentChannel,
-} from '../context/LedgerContext';
+  useContactDetail,
+  useRecordLedgerEntry,
+} from '../hooks/useFinTrackQueries';
+import { PaymentChannel } from '../types/ledger';
 import { formatINR, paiseToRupees } from '../utils/paise';
+import {
+  SkeletonLoader,
+  EmptyStateCard,
+  ErrorRetryCard,
+} from '../components/QueryStateViews';
 
 interface CustomerDetailProps {
   contactId: string;
@@ -25,10 +31,14 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
   contactId,
   onBack,
 }) => {
-  const { palette } = useFinTrackTheme();
-  const { contacts, recordContactEntry } = useLedger();
+  const { palette, activeWorkspaceId } = useFinTrackTheme();
 
-  const contact = contacts.find((c) => c.id === contactId);
+  // Live TanStack React Query Hooks
+  const detailQuery = useContactDetail(activeWorkspaceId, contactId);
+  const recordEntryMutation = useRecordLedgerEntry(
+    activeWorkspaceId,
+    contactId
+  );
 
   const [entryModalAction, setEntryModalAction] = useState<'GAVE' | 'GOT' | null>(
     null
@@ -37,38 +47,71 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
   const [paymentVia, setPaymentVia] = useState<PaymentChannel>('UPI');
   const [note, setNote] = useState('');
 
-  if (!contact) {
+  // 1. Loading State
+  if (detailQuery.isLoading) {
     return (
       <View
         style={[
-          styles.emptyWrap,
-          { backgroundColor: palette.backgroundCream },
+          styles.container,
+          { backgroundColor: palette.backgroundCream, padding: 16 },
         ]}
       >
-        <Text style={{ color: palette.textEspresso }}>Contact not found</Text>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <Text style={{ color: palette.primaryBrown, fontWeight: '700' }}>
-            ← Back
-          </Text>
-        </TouchableOpacity>
+        <SkeletonLoader count={4} height={95} />
       </View>
     );
   }
 
-  const isReceivable = contact.direction === 'RECEIVABLE';
-  const remainingRupeesNumber = paiseToRupees(contact.remainingPaise);
+  // 2. Error State
+  if (detailQuery.isError || !detailQuery.data) {
+    const errMsg =
+      detailQuery.error instanceof Error
+        ? detailQuery.error.message
+        : 'Could not load contact ledger timeline from server.';
+    return (
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: palette.backgroundCream, padding: 16 },
+        ]}
+      >
+        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+          <Text style={{ color: palette.primaryBrown, fontWeight: '800' }}>
+            ← Back to Khata
+          </Text>
+        </TouchableOpacity>
+        <ErrorRetryCard
+          errorMessage={errMsg}
+          onRetry={() => detailQuery.refetch()}
+        />
+      </View>
+    );
+  }
 
-  const handleConfirmEntry = () => {
-    if (!entryModalAction || !amountRupees.trim() || Number(amountRupees) <= 0) {
+  const { contact, obligation, entries } = detailQuery.data;
+  const isReceivable = obligation?.direction !== 'PAYABLE';
+  const principalPaise = obligation?.principalPaise || 0;
+  const repaidPaise = obligation?.repaidPaise || 0;
+  const remainingPaise = obligation?.remainingPaise || 0;
+  const remainingRupeesNumber = paiseToRupees(remainingPaise);
+
+  const handleConfirmEntry = async () => {
+    if (
+      !entryModalAction ||
+      !obligation ||
+      !amountRupees.trim() ||
+      Number(amountRupees) <= 0
+    ) {
       return;
     }
-    recordContactEntry({
-      contactId: contact.id,
+
+    await recordEntryMutation.mutateAsync({
+      obligationId: obligation.id,
       action: entryModalAction,
       amountRupees: amountRupees.trim(),
       paymentVia,
-      note,
+      note: note.trim(),
     });
+
     setAmountRupees('');
     setNote('');
     setEntryModalAction(null);
@@ -76,8 +119,8 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
   const handleWhatsAppRemind = async () => {
     const cleanPhone = contact.phoneNumber.replace(/[^\d+]/g, '');
-    const amountStr = formatINR(contact.remainingPaise);
-    const msg = `Namaste ${contact.displayName} ji 🙏, FinTrack par aapka ${amountStr} ka balance (Original: ${formatINR(contact.principalPaise)}, Paid: ${formatINR(contact.repaidPaise)}) due hai. Jab suvidha ho toh UPI kar dijiyega. Dhanyawad!`;
+    const amountStr = formatINR(remainingPaise);
+    const msg = `Namaste ${contact.displayName} ji 🙏, FinTrack par aapka ${amountStr} ka balance (Original: ${formatINR(principalPaise)}, Paid: ${formatINR(repaidPaise)}) due hai. Jab suvidha ho toh UPI kar dijiyega. Dhanyawad!`;
     const url = `https://wa.me/${cleanPhone.replace('+', '')}?text=${encodeURIComponent(msg)}`;
     try {
       await Linking.openURL(url);
@@ -97,9 +140,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
       <View
         style={[
           styles.topBar,
-          {
-            backgroundColor: palette.primaryBrown,
-          },
+          { backgroundColor: palette.primaryBrown },
         ]}
       >
         <View style={styles.topBarRow}>
@@ -114,11 +155,11 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
               {contact.displayName}
             </Text>
             <Text style={[styles.contactSub, { color: palette.surfaceBeige }]}>
-              {contact.phoneNumber} • Due: {contact.dueDate}
+              {contact.phoneNumber} • Due: {obligation?.dueDate || 'N/A'}
             </Text>
           </View>
 
-          {contact.remainingPaise > 0 && (
+          {remainingPaise > 0 && (
             <TouchableOpacity
               onPress={handleWhatsAppRemind}
               style={[
@@ -147,7 +188,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
               Original Principal
             </Text>
             <Text style={[styles.mathColVal, { color: palette.textEspresso }]}>
-              {formatINR(contact.principalPaise)}
+              {formatINR(principalPaise)}
             </Text>
           </View>
 
@@ -165,7 +206,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
             <Text
               style={[styles.mathColVal, { color: palette.receiveSageGreen }]}
             >
-              {formatINR(contact.repaidPaise)}
+              {formatINR(repaidPaise)}
             </Text>
           </View>
 
@@ -178,14 +219,14 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
           <View style={styles.mathCol}>
             <Text style={[styles.mathColLabel, { color: palette.textMocha }]}>
-              Remaining ({contact.status})
+              Remaining ({obligation?.status || 'OPEN'})
             </Text>
             <Text
               style={[
                 styles.mathColVal,
                 {
                   color:
-                    contact.remainingPaise === 0
+                    remainingPaise === 0
                       ? palette.receiveSageGreen
                       : isReceivable
                         ? palette.giveTerracottaRed
@@ -193,7 +234,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                 },
               ]}
             >
-              {formatINR(contact.remainingPaise)}
+              {formatINR(remainingPaise)}
             </Text>
           </View>
         </View>
@@ -219,36 +260,67 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
           </Text>
         </View>
 
-        {contact.entries.map((entry) => {
-          const isLeftGave = entry.bubbleSide === 'GAVE';
-          return (
-            <View
-              key={entry.id}
-              style={[
-                styles.bubbleWrapper,
-                isLeftGave ? styles.alignLeft : styles.alignRight,
-              ]}
-            >
+        {entries.length === 0 ? (
+          <EmptyStateCard
+            emoji="💬"
+            title="No Ledger Entries Yet"
+            message="Use the buttons below to record Udhaar Diya (Gave) or Wapas Mila (Got)."
+          />
+        ) : (
+          entries.map((entry) => {
+            const isLeftGave = entry.bubbleSide === 'GAVE';
+            return (
               <View
+                key={entry.id}
                 style={[
-                  styles.chatBubble,
-                  isLeftGave
-                    ? {
-                        backgroundColor: palette.giveTerracottaTint,
-                        borderColor: palette.giveTerracottaRed,
-                        borderTopLeftRadius: 4,
-                      }
-                    : {
-                        backgroundColor: palette.receiveSageTint,
-                        borderColor: palette.receiveSageGreen,
-                        borderTopRightRadius: 4,
-                      },
+                  styles.bubbleWrapper,
+                  isLeftGave ? styles.alignLeft : styles.alignRight,
                 ]}
               >
-                <View style={styles.bubbleHeaderRow}>
+                <View
+                  style={[
+                    styles.chatBubble,
+                    isLeftGave
+                      ? {
+                          backgroundColor: palette.giveTerracottaTint,
+                          borderColor: palette.giveTerracottaRed,
+                          borderTopLeftRadius: 4,
+                        }
+                      : {
+                          backgroundColor: palette.receiveSageTint,
+                          borderColor: palette.receiveSageGreen,
+                          borderTopRightRadius: 4,
+                        },
+                  ]}
+                >
+                  <View style={styles.bubbleHeaderRow}>
+                    <Text
+                      style={[
+                        styles.bubbleDirectionLabel,
+                        {
+                          color: isLeftGave
+                            ? palette.giveTerracottaRed
+                            : palette.receiveSageGreen,
+                        },
+                      ]}
+                    >
+                      {isLeftGave
+                        ? '🔴 UDHAAR DIYA (YOU GAVE)'
+                        : '🟢 WAPAS MILA (YOU GOT)'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.bubbleViaBadge,
+                        { color: palette.textMocha },
+                      ]}
+                    >
+                      via {entry.paymentVia}
+                    </Text>
+                  </View>
+
                   <Text
                     style={[
-                      styles.bubbleDirectionLabel,
+                      styles.bubbleAmount,
                       {
                         color: isLeftGave
                           ? palette.giveTerracottaRed
@@ -256,60 +328,40 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                       },
                     ]}
                   >
-                    {isLeftGave
-                      ? '🔴 UDHAAR DIYA (YOU GAVE)'
-                      : '🟢 WAPAS MILA (YOU GOT)'}
+                    {formatINR(entry.amountPaise)}
                   </Text>
+
                   <Text
-                    style={[styles.bubbleViaBadge, { color: palette.textMocha }]}
+                    style={[styles.bubbleNote, { color: palette.textEspresso }]}
                   >
-                    via {entry.paymentVia}
+                    {entry.note}
                   </Text>
-                </View>
 
-                <Text
-                  style={[
-                    styles.bubbleAmount,
-                    {
-                      color: isLeftGave
-                        ? palette.giveTerracottaRed
-                        : palette.receiveSageGreen,
-                    },
-                  ]}
-                >
-                  {formatINR(entry.amountPaise)}
-                </Text>
-
-                <Text
-                  style={[styles.bubbleNote, { color: palette.textEspresso }]}
-                >
-                  {entry.note}
-                </Text>
-
-                <View
-                  style={[
-                    styles.bubbleFooter,
-                    { borderTopColor: 'rgba(44, 30, 22, 0.1)' },
-                  ]}
-                >
-                  <Text
-                    style={[styles.bubbleTime, { color: palette.textMocha }]}
-                  >
-                    {entry.occurredAt}
-                  </Text>
-                  <Text
+                  <View
                     style={[
-                      styles.bubbleRunningBalance,
-                      { color: palette.textEspresso },
+                      styles.bubbleFooter,
+                      { borderTopColor: 'rgba(44, 30, 22, 0.1)' },
                     ]}
                   >
-                    Balance: {formatINR(entry.runningRemainingPaise)}
-                  </Text>
+                    <Text
+                      style={[styles.bubbleTime, { color: palette.textMocha }]}
+                    >
+                      {entry.occurredAt}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.bubbleRunningBalance,
+                        { color: palette.textEspresso },
+                      ]}
+                    >
+                      Balance: {formatINR(entry.runningRemainingPaise)}
+                    </Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          );
-        })}
+            );
+          })
+        )}
       </ScrollView>
 
       {/* 3. Bottom Action Bar: [ 🔴 Gave / Udhaar Diya ] & [ 🟢 Got / Wapas Mila ] */}
@@ -363,7 +415,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* Partial Repayment / New Udhaar Modal */}
+      {/* Partial Repayment / Additional Udhaar Modal */}
       <Modal
         visible={entryModalAction !== null}
         transparent
@@ -386,48 +438,8 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
             </Text>
 
             <Text style={[styles.modalSub, { color: palette.textMocha }]}>
-              Current Remaining Balance: {formatINR(contact.remainingPaise)}
+              Current Remaining Balance: {formatINR(remainingPaise)}
             </Text>
-
-            {/* Quick Partial Repayment Preset Chips */}
-            {entryModalAction === 'GOT' && contact.remainingPaise > 0 && (
-              <View style={styles.presetRow}>
-                {[
-                  { label: '₹250', val: 250 },
-                  { label: '₹500', val: 500 },
-                  {
-                    label: `Half (${formatINR(Math.round(contact.remainingPaise / 2))})`,
-                    val: paiseToRupees(Math.round(contact.remainingPaise / 2)),
-                  },
-                  {
-                    label: `Full (${formatINR(contact.remainingPaise)})`,
-                    val: remainingRupeesNumber,
-                  },
-                ].map((chip) => (
-                  <TouchableOpacity
-                    key={chip.label}
-                    onPress={() => setAmountRupees(String(chip.val))}
-                    style={[
-                      styles.presetChip,
-                      {
-                        backgroundColor: palette.surfaceElevated,
-                        borderColor: palette.receiveSageGreen,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: '800',
-                        color: palette.receiveSageGreen,
-                      }}
-                    >
-                      {chip.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
 
             <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
               Amount (in ₹ Rupees)
@@ -436,7 +448,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
               value={amountRupees}
               onChangeText={setAmountRupees}
               keyboardType="numeric"
-              placeholder="e.g. 500"
+              placeholder="Enter amount"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -491,11 +503,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder={
-                entryModalAction === 'GOT'
-                  ? 'e.g. Partial payment via GPay'
-                  : 'e.g. Extra Samaan Udhaar'
-              }
+              placeholder="Enter note"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -522,6 +530,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
 
               <TouchableOpacity
                 onPress={handleConfirmEntry}
+                disabled={recordEntryMutation.isPending}
                 style={[
                   styles.confirmBtn,
                   {
@@ -535,7 +544,9 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
                 <Text
                   style={{ color: palette.textOnPrimary, fontWeight: '800' }}
                 >
-                  ✅ Confirm & Save
+                  {recordEntryMutation.isPending
+                    ? 'Saving...'
+                    : '✅ Confirm & Save'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -550,14 +561,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  emptyWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   backBtn: {
-    marginTop: 12,
-    padding: 10,
+    paddingVertical: 10,
   },
   topBar: {
     paddingHorizontal: 14,
@@ -735,18 +740,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 12,
     fontWeight: '600',
-  },
-  presetRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-  },
-  presetChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
   },
   inputLabel: {
     fontSize: 12,

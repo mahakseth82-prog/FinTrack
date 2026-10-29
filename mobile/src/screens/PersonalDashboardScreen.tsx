@@ -10,14 +10,21 @@ import {
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
-  useLedger,
-  ContactLedgerItem,
-  TransactionKind,
-} from '../context/LedgerContext';
+  useDashboardSummary,
+  useBudgets,
+  useContactsList,
+  useCreateTransaction,
+} from '../hooks/useFinTrackQueries';
+import { TransactionKind } from '../types/ledger';
 import { formatINR } from '../utils/paise';
+import {
+  SkeletonLoader,
+  EmptyStateCard,
+  ErrorRetryCard,
+} from '../components/QueryStateViews';
 
 interface PersonalDashboardProps {
-  onOpenContactDetail: (contact: ContactLedgerItem) => void;
+  onOpenContactDetail: (contactId: string) => void;
   onOpenDraftsTab: () => void;
 }
 
@@ -25,14 +32,13 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   onOpenContactDetail,
   onOpenDraftsTab,
 }) => {
-  const { palette } = useFinTrackTheme();
-  const {
-    getWorkspaceTransactions,
-    getWorkspaceBudgets,
-    getWorkspaceContacts,
-    detectedUpiCount,
-    addTransaction,
-  } = useLedger();
+  const { palette, activeWorkspaceId } = useFinTrackTheme();
+
+  // Live TanStack React Query Hooks (Zero hardcoded dummy data)
+  const summaryQuery = useDashboardSummary(activeWorkspaceId);
+  const budgetsQuery = useBudgets(activeWorkspaceId);
+  const udhaarQuery = useContactsList(activeWorkspaceId);
+  const createTxMutation = useCreateTransaction(activeWorkspaceId);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [txKind, setTxKind] = useState<TransactionKind>('EXPENSE');
@@ -41,35 +47,51 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const [amountRupees, setAmountRupees] = useState('');
   const [description, setDescription] = useState('');
 
-  const personalTxs = getWorkspaceTransactions('PERSONAL');
-  const personalBudgets = getWorkspaceBudgets('PERSONAL');
-  const personalContacts = getWorkspaceContacts('PERSONAL');
+  // 1. Loading State -> Animated Skeleton Placeholder Loaders
+  if (
+    summaryQuery.isLoading ||
+    budgetsQuery.isLoading ||
+    udhaarQuery.isLoading
+  ) {
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <SkeletonLoader count={4} height={110} />
+      </ScrollView>
+    );
+  }
 
-  // Integer Paise Aggregations (Rule #2)
-  const totalSpentPaise = personalTxs
-    .filter((t) => t.kind === 'EXPENSE')
-    .reduce((sum, t) => sum + t.amountPaise, 0);
+  // 2. Error State -> Clean Retry Button
+  if (summaryQuery.isError) {
+    const errMsg =
+      summaryQuery.error instanceof Error
+        ? summaryQuery.error.message
+        : 'Unable to fetch Personal Dashboard from backend.';
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ErrorRetryCard
+          errorMessage={errMsg}
+          onRetry={() => {
+            summaryQuery.refetch();
+            budgetsQuery.refetch();
+            udhaarQuery.refetch();
+          }}
+        />
+      </ScrollView>
+    );
+  }
 
-  const totalIncomePaise = personalTxs
-    .filter((t) => t.kind === 'INCOME')
-    .reduce((sum, t) => sum + t.amountPaise, 0);
+  const summary = summaryQuery.data;
+  const budgets = budgetsQuery.data?.budgets || [];
+  const personalUdhaarItems = udhaarQuery.data?.items || [];
+  const recentTransactions = summary?.recentTransactions || [];
 
-  const personalWillGetPaise = personalContacts
-    .filter((c) => c.direction === 'RECEIVABLE' && c.status !== 'SETTLED')
-    .reduce((sum, c) => sum + c.remainingPaise, 0);
-
-  const personalYouOwePaise = personalContacts
-    .filter((c) => c.direction === 'PAYABLE' && c.status !== 'SETTLED')
-    .reduce((sum, c) => sum + c.remainingPaise, 0);
-
-  const handleSaveTransaction = () => {
+  const handleSaveTransaction = async () => {
     if (!amountRupees.trim() || Number(amountRupees) <= 0) return;
-    addTransaction({
-      workspaceMode: 'PERSONAL',
+    await createTxMutation.mutateAsync({
       kind: txKind,
-      categoryName: category,
-      merchantOrPayee: merchant.trim() || category,
-      description: description.trim() || 'Manual Entry',
+      categoryName: category.trim(),
+      merchantOrPayee: merchant.trim() || category.trim(),
+      description: description.trim(),
       amountRupees: amountRupees.trim(),
       paymentVia: 'UPI',
     });
@@ -84,7 +106,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* 1. Monthly Spent vs Income Card (Warm Coffee Brown #6F4E37) */}
+      {/* 1. Monthly Spent vs Income Summary Card (Live Backend Data) */}
       <View
         style={[
           styles.summaryCard,
@@ -93,7 +115,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       >
         <View style={styles.summaryHeaderRow}>
           <Text style={[styles.summaryMonthText, { color: palette.accentWarm }]}>
-            OCTOBER 2026 • GHAR KA HISAB
+            GHAR KA KHATA • LIVE SUMMARY
           </Text>
           <TouchableOpacity
             onPress={() => setShowAddModal(true)}
@@ -102,7 +124,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               { backgroundColor: palette.accentWarm },
             ]}
           >
-            <Text style={[styles.quickAddBtnText, { color: palette.textEspresso }]}>
+            <Text
+              style={[styles.quickAddBtnText, { color: palette.textEspresso }]}
+            >
               + Add Entry
             </Text>
           </TouchableOpacity>
@@ -114,7 +138,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               Total Spent (Kharcha)
             </Text>
             <Text style={[styles.metricValue, { color: palette.textOnPrimary }]}>
-              {formatINR(totalSpentPaise)}
+              {formatINR(summary?.totalSpentPaise || 0)}
             </Text>
           </View>
 
@@ -130,7 +154,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               Total Income (Kamaai)
             </Text>
             <Text style={[styles.metricValue, { color: '#C6F6D5' }]}>
-              {formatINR(totalIncomePaise)}
+              {formatINR(summary?.totalIncomePaise || 0)}
             </Text>
           </View>
         </View>
@@ -142,41 +166,47 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           ]}
         >
           <Text style={[styles.savingsText, { color: palette.surfaceBeige }]}>
-            Bachat (Net Balance):{' '}
+            Net Balance:{' '}
             <Text style={{ fontWeight: '800', color: palette.textOnPrimary }}>
-              {formatINR(totalIncomePaise - totalSpentPaise)}
+              {formatINR(summary?.netBalancePaise || 0)}
             </Text>
           </Text>
         </View>
       </View>
 
-      {/* 2. UPI Payments Detected Banner */}
-      <TouchableOpacity
-        activeOpacity={0.88}
-        onPress={onOpenDraftsTab}
-        style={[
-          styles.upiBanner,
-          {
-            backgroundColor: palette.warningAmberTint,
-            borderColor: palette.accentWarm,
-          },
-        ]}
-      >
-        <View style={styles.upiBannerLeft}>
-          <Text style={styles.upiBellIcon}>🔔</Text>
-          <View>
-            <Text style={[styles.upiBannerTitle, { color: palette.textEspresso }]}>
-              {detectedUpiCount} UPI Payments Detected
-            </Text>
-            <Text style={[styles.upiBannerSub, { color: palette.textMocha }]}>
-              GPay & PhonePe notifications ready — Tap to review & confirm
-            </Text>
+      {/* 2. UPI Payments Detected Banner (Rendered when pending drafts exist) */}
+      {(summary?.detectedUpiCount || 0) > 0 && (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={onOpenDraftsTab}
+          style={[
+            styles.upiBanner,
+            {
+              backgroundColor: palette.warningAmberTint,
+              borderColor: palette.accentWarm,
+            },
+          ]}
+        >
+          <View style={styles.upiBannerLeft}>
+            <Text style={styles.upiBellIcon}>🔔</Text>
+            <View>
+              <Text
+                style={[styles.upiBannerTitle, { color: palette.textEspresso }]}
+              >
+                {summary?.detectedUpiCount} UPI Payments Detected
+              </Text>
+              <Text style={[styles.upiBannerSub, { color: palette.textMocha }]}>
+                Tap to review & confirm into your ledger
+              </Text>
+            </View>
           </View>
-        </View>
-        <Text style={[styles.upiArrow, { color: palette.primaryBrown }]}>→</Text>
-      </TouchableOpacity>
+          <Text style={[styles.upiArrow, { color: palette.primaryBrown }]}>
+            →
+          </Text>
+        </TouchableOpacity>
+      )}
 
-      {/* 3. Personal Udhaar Mini-Card (You Will Get / You Owe) */}
+      {/* 3. Personal & Friends Udhaar Section */}
       <View
         style={[
           styles.sectionCard,
@@ -214,7 +244,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 { color: palette.receiveSageGreen },
               ]}
             >
-              {formatINR(personalWillGetPaise)}
+              {formatINR(summary?.totalReceivablePaise || 0)}
             </Text>
           </View>
 
@@ -241,15 +271,15 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 { color: palette.giveTerracottaRed },
               ]}
             >
-              {formatINR(personalYouOwePaise)}
+              {formatINR(summary?.totalPayablePaise || 0)}
             </Text>
           </View>
         </View>
 
-        {personalContacts.map((friend) => (
+        {personalUdhaarItems.map((friend) => (
           <TouchableOpacity
-            key={friend.id}
-            onPress={() => onOpenContactDetail(friend)}
+            key={friend.obligationId}
+            onPress={() => onOpenContactDetail(friend.contactId)}
             style={[
               styles.friendRow,
               {
@@ -281,7 +311,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 {friend.direction === 'RECEIVABLE' ? '+' : '-'}
                 {formatINR(friend.remainingPaise)}
               </Text>
-              <Text style={[styles.tapChatHint, { color: palette.primaryBrown }]}>
+              <Text
+                style={[styles.tapChatHint, { color: palette.primaryBrown }]}
+              >
                 Open Chat Timeline →
               </Text>
             </View>
@@ -289,7 +321,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         ))}
       </View>
 
-      {/* 4. Monthly Category Budgets (With 80%+ Alert Bar) */}
+      {/* 4. Monthly Category Budgets */}
       <View
         style={[
           styles.sectionCard,
@@ -303,69 +335,80 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           📊 Monthly Category Budgets
         </Text>
 
-        {personalBudgets.map((b) => {
-          const pct = Math.min(
-            100,
-            Math.round((b.spentPaise / b.limitPaise) * 100)
-          );
-          const isOverThreshold = pct >= b.alertThresholdPercent;
-          const barColor = isOverThreshold
-            ? palette.giveTerracottaRed
-            : palette.primaryBrown;
+        {budgets.length === 0 ? (
+          <EmptyStateCard
+            emoji="📊"
+            title="No Monthly Budgets Configured Yet"
+            message="Run /supabase/seed.sql or add category budgets to track your monthly spending limits."
+          />
+        ) : (
+          budgets.map((b) => {
+            const pct = Math.min(
+              100,
+              Math.round((b.spentPaise / b.limitPaise) * 100)
+            );
+            const isOverThreshold = pct >= b.alertThresholdPercent;
+            const barColor = isOverThreshold
+              ? palette.giveTerracottaRed
+              : palette.primaryBrown;
 
-          return (
-            <View key={b.id} style={styles.budgetItem}>
-              <View style={styles.budgetHeaderRow}>
-                <Text style={[styles.budgetName, { color: palette.textEspresso }]}>
-                  {b.icon} {b.categoryName}
-                </Text>
-                <Text
-                  style={[
-                    styles.budgetNumbers,
-                    {
-                      color: isOverThreshold
-                        ? palette.giveTerracottaRed
-                        : palette.textMocha,
-                    },
-                  ]}
-                >
-                  {formatINR(b.spentPaise)} / {formatINR(b.limitPaise)} ({pct}%)
-                </Text>
-              </View>
+            return (
+              <View key={b.id} style={styles.budgetItem}>
+                <View style={styles.budgetHeaderRow}>
+                  <Text
+                    style={[styles.budgetName, { color: palette.textEspresso }]}
+                  >
+                    {b.categoryName}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.budgetNumbers,
+                      {
+                        color: isOverThreshold
+                          ? palette.giveTerracottaRed
+                          : palette.textMocha,
+                      },
+                    ]}
+                  >
+                    {formatINR(b.spentPaise)} / {formatINR(b.limitPaise)} ({pct}%)
+                  </Text>
+                </View>
 
-              <View
-                style={[
-                  styles.progressTrack,
-                  { backgroundColor: palette.pillInactiveBg },
-                ]}
-              >
                 <View
                   style={[
-                    styles.progressFill,
-                    {
-                      width: `${pct}%`,
-                      backgroundColor: barColor,
-                    },
-                  ]}
-                />
-              </View>
-
-              {isOverThreshold && (
-                <Text
-                  style={[
-                    styles.budgetAlertText,
-                    { color: palette.giveTerracottaRed },
+                    styles.progressTrack,
+                    { backgroundColor: palette.pillInactiveBg },
                   ]}
                 >
-                  ⚠️ Alert: {pct}% budget used (Crossed {b.alertThresholdPercent}% limit)
-                </Text>
-              )}
-            </View>
-          );
-        })}
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${pct}%`,
+                        backgroundColor: barColor,
+                      },
+                    ]}
+                  />
+                </View>
+
+                {isOverThreshold && (
+                  <Text
+                    style={[
+                      styles.budgetAlertText,
+                      { color: palette.giveTerracottaRed },
+                    ]}
+                  >
+                    ⚠️ Alert: {pct}% budget used (Crossed{' '}
+                    {b.alertThresholdPercent}% limit)
+                  </Text>
+                )}
+              </View>
+            );
+          })
+        )}
       </View>
 
-      {/* 5. Recent Transactions List */}
+      {/* 5. Recent Transactions List (With Empty State) */}
       <View
         style={[
           styles.sectionCard,
@@ -379,55 +422,67 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           🧾 Recent Transactions
         </Text>
 
-        {personalTxs.map((tx) => (
-          <View
-            key={tx.id}
-            style={[
-              styles.txRow,
-              {
-                backgroundColor: palette.surfaceElevated,
-                borderColor: palette.borderLatte,
-              },
-            ]}
-          >
-            <View style={styles.txLeft}>
-              <View
-                style={[
-                  styles.txIconBox,
-                  { backgroundColor: palette.surfaceBeige },
-                ]}
-              >
-                <Text style={styles.txEmoji}>{tx.categoryIcon}</Text>
-              </View>
-              <View>
-                <Text style={[styles.txMerchant, { color: palette.textEspresso }]}>
-                  {tx.merchantOrPayee}
-                </Text>
-                <Text style={[styles.txMeta, { color: palette.textMocha }]}>
-                  {tx.categoryName} • {tx.paymentVia} • {tx.occurredAt}
-                </Text>
-              </View>
-            </View>
-
-            <Text
+        {recentTransactions.length === 0 ? (
+          <EmptyStateCard
+            emoji="🎙️"
+            title="No Transactions Recorded Yet"
+            message="Tap the button below or use the mic to record your first personal expense or income!"
+            actionLabel="+ Add First Transaction"
+            onActionPress={() => setShowAddModal(true)}
+          />
+        ) : (
+          recentTransactions.map((tx) => (
+            <View
+              key={tx.id}
               style={[
-                styles.txAmount,
+                styles.txRow,
                 {
-                  color:
-                    tx.kind === 'INCOME'
-                      ? palette.receiveSageGreen
-                      : palette.giveTerracottaRed,
+                  backgroundColor: palette.surfaceElevated,
+                  borderColor: palette.borderLatte,
                 },
               ]}
             >
-              {tx.kind === 'INCOME' ? '+' : '-'}
-              {formatINR(tx.amountPaise)}
-            </Text>
-          </View>
-        ))}
+              <View style={styles.txLeft}>
+                <View
+                  style={[
+                    styles.txIconBox,
+                    { backgroundColor: palette.surfaceBeige },
+                  ]}
+                >
+                  <Text style={styles.txEmoji}>🧾</Text>
+                </View>
+                <View>
+                  <Text
+                    style={[styles.txMerchant, { color: palette.textEspresso }]}
+                  >
+                    {tx.merchantOrPayee}
+                  </Text>
+                  <Text style={[styles.txMeta, { color: palette.textMocha }]}>
+                    {tx.categoryName} • {tx.paymentVia}
+                  </Text>
+                </View>
+              </View>
+
+              <Text
+                style={[
+                  styles.txAmount,
+                  {
+                    color:
+                      tx.kind === 'INCOME'
+                        ? palette.receiveSageGreen
+                        : palette.giveTerracottaRed,
+                  },
+                ]}
+              >
+                {tx.kind === 'INCOME' ? '+' : '-'}
+                {formatINR(tx.amountPaise)}
+              </Text>
+            </View>
+          ))
+        )}
       </View>
 
-      {/* Quick Add Personal Expense / Income Modal */}
+      {/* Modal: Add Expense / Income via useCreateTransaction Mutation */}
       <Modal visible={showAddModal} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
           <View
@@ -469,7 +524,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                           : palette.textEspresso,
                     }}
                   >
-                    {k === 'EXPENSE' ? '💸 Kharcha (Expense)' : '💰 Kamaai (Income)'}
+                    {k === 'EXPENSE'
+                      ? '💸 Kharcha (Expense)'
+                      : '💰 Kamaai (Income)'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -481,7 +538,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             <TextInput
               value={amountRupees}
               onChangeText={setAmountRupees}
-              placeholder="e.g. 450"
+              placeholder="Enter amount"
               keyboardType="numeric"
               placeholderTextColor={palette.textMocha}
               style={[
@@ -495,12 +552,12 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             />
 
             <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Merchant / Kahan Kharch Hua
+              Merchant / Payee
             </Text>
             <TextInput
               value={merchant}
               onChangeText={setMerchant}
-              placeholder="e.g. Mother Dairy / BigBasket"
+              placeholder="Enter merchant or payee name"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -513,41 +570,22 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             />
 
             <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Category
+              Category Name
             </Text>
-            <View style={styles.catChipRow}>
-              {['Grocery & Rashan', 'Petrol & Travel', 'Chai & Dining'].map(
-                (cat) => (
-                  <TouchableOpacity
-                    key={cat}
-                    onPress={() => setCategory(cat)}
-                    style={[
-                      styles.catChip,
-                      {
-                        backgroundColor:
-                          category === cat
-                            ? palette.primaryBrown
-                            : palette.surfaceElevated,
-                        borderColor: palette.borderLatte,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        fontWeight: '700',
-                        color:
-                          category === cat
-                            ? palette.textOnPrimary
-                            : palette.textEspresso,
-                      }}
-                    >
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              )}
-            </View>
+            <TextInput
+              value={category}
+              onChangeText={setCategory}
+              placeholder="Category name"
+              placeholderTextColor={palette.textMocha}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: palette.surfaceElevated,
+                  borderColor: palette.borderLatte,
+                  color: palette.textEspresso,
+                },
+              ]}
+            />
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -564,6 +602,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
 
               <TouchableOpacity
                 onPress={handleSaveTransaction}
+                disabled={createTxMutation.isPending}
                 style={[
                   styles.saveBtn,
                   { backgroundColor: palette.primaryBrown },
@@ -572,7 +611,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 <Text
                   style={{ color: palette.textOnPrimary, fontWeight: '800' }}
                 >
-                  ✅ Confirm & Save
+                  {createTxMutation.isPending
+                    ? 'Saving...'
+                    : '✅ Confirm & Save'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -832,17 +873,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-  },
-  catChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  catChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
   },
   modalActions: {
     flexDirection: 'row',

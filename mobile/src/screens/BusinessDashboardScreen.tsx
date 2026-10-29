@@ -11,24 +11,35 @@ import {
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
-  useLedger,
-  ContactLedgerItem,
+  useUdhaarLedger,
+  useCreateObligation,
+} from '../hooks/useFinTrackQueries';
+import {
+  UdhaarLedgerItemDto,
   ObligationDirection,
   ContactKind,
-} from '../context/LedgerContext';
+} from '../types/ledger';
 import { formatINR } from '../utils/paise';
+import {
+  SkeletonLoader,
+  EmptyStateCard,
+  ErrorRetryCard,
+} from '../components/QueryStateViews';
 
 type FilterChip = 'ALL' | 'OVERDUE' | 'DUE_TODAY' | 'CUSTOMERS' | 'SUPPLIERS';
 
 interface BusinessDashboardProps {
-  onOpenContactDetail: (contact: ContactLedgerItem) => void;
+  onOpenContactDetail: (contactId: string) => void;
 }
 
 export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
   onOpenContactDetail,
 }) => {
-  const { palette } = useFinTrackTheme();
-  const { getWorkspaceContacts, addNewContactObligation } = useLedger();
+  const { palette, activeWorkspaceId } = useFinTrackTheme();
+
+  // Live TanStack React Query Hooks (Zero hardcoded dummy data)
+  const ledgerQuery = useUdhaarLedger(activeWorkspaceId);
+  const createObligationMutation = useCreateObligation(activeWorkspaceId);
 
   const [activeFilter, setActiveFilter] = useState<FilterChip>('ALL');
   const [showNewUdhaarModal, setShowNewUdhaarModal] = useState(false);
@@ -36,19 +47,38 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [direction, setDirection] = useState<ObligationDirection>('RECEIVABLE');
   const [principalRupees, setPrincipalRupees] = useState('');
-  const [dueDate, setDueDate] = useState('2026-11-10');
+  const [dueDate, setDueDate] = useState(
+    new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  );
   const [note, setNote] = useState('');
 
-  const businessContacts = getWorkspaceContacts('BUSINESS');
+  // 1. Loading State -> Animated Skeleton Loader
+  if (ledgerQuery.isLoading) {
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <SkeletonLoader count={4} height={115} />
+      </ScrollView>
+    );
+  }
 
-  // Integer Paise Totals for Business Udhaar Khata
-  const totalWillGetPaise = businessContacts
-    .filter((c) => c.direction === 'RECEIVABLE' && c.status !== 'SETTLED')
-    .reduce((sum, c) => sum + c.remainingPaise, 0);
+  // 2. Error State -> Clean Retry Card
+  if (ledgerQuery.isError) {
+    const errMsg =
+      ledgerQuery.error instanceof Error
+        ? ledgerQuery.error.message
+        : 'Unable to fetch Udhaar Khata from backend.';
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ErrorRetryCard
+          errorMessage={errMsg}
+          onRetry={() => ledgerQuery.refetch()}
+        />
+      </ScrollView>
+    );
+  }
 
-  const totalWillGivePaise = businessContacts
-    .filter((c) => c.direction === 'PAYABLE' && c.status !== 'SETTLED')
-    .reduce((sum, c) => sum + c.remainingPaise, 0);
+  const summary = ledgerQuery.data?.summary;
+  const businessContacts = ledgerQuery.data?.items || [];
 
   const filteredContacts = businessContacts.filter((c) => {
     if (activeFilter === 'OVERDUE') return c.dueTag === 'OVERDUE';
@@ -58,7 +88,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     return true;
   });
 
-  const handleDirectWhatsAppRemind = async (contact: ContactLedgerItem) => {
+  const handleDirectWhatsAppRemind = async (contact: UdhaarLedgerItemDto) => {
     const cleanPhone = contact.phoneNumber.replace(/[^\d+]/g, '');
     const amountStr = formatINR(contact.remainingPaise);
     const politeMsg = `Namaste ${contact.displayName} ji 🙏, FinTrack Vyapaar Khata par aapka ${amountStr} ka balance (${contact.titleOrNote}) due hai. Jab suvidha ho toh UPI ya cash se bhej dijiyega. Dhanyawad!`;
@@ -66,30 +96,28 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     try {
       await Linking.openURL(url);
     } catch {
-      // Fallback if WhatsApp is not installed in simulator
+      // Fallback when WhatsApp is not installed on emulator
     }
   };
 
-  const handleCreateUdhaar = () => {
+  const handleCreateUdhaar = async () => {
     if (!contactName.trim() || !principalRupees.trim()) return;
     const kind: ContactKind =
       direction === 'RECEIVABLE' ? 'CUSTOMER' : 'SUPPLIER';
-    const created = addNewContactObligation({
-      workspaceMode: 'BUSINESS',
+    await createObligationMutation.mutateAsync({
       displayName: contactName.trim(),
-      phoneNumber: phoneNumber.trim() || '+919876543210',
+      phoneNumber: phoneNumber.trim(),
       kind,
       direction,
       principalRupees: principalRupees.trim(),
-      dueDate: dueDate.trim() || '2026-11-10',
-      titleOrNote: note.trim() || 'Dukaan Udhaar Entry',
+      dueDate: dueDate.trim(),
+      titleOrNote: note.trim(),
     });
     setContactName('');
     setPhoneNumber('');
     setPrincipalRupees('');
     setNote('');
     setShowNewUdhaarModal(false);
-    onOpenContactDetail(created);
   };
 
   return (
@@ -120,13 +148,15 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               { backgroundColor: palette.accentWarm },
             ]}
           >
-            <Text style={[styles.addCustomerBtnText, { color: palette.textOnPrimary }]}>
+            <Text
+              style={[styles.addCustomerBtnText, { color: palette.textOnPrimary }]}
+            >
               + Naya Udhaar
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Top Summary Cards: You Will Get vs You Will Give */}
+        {/* Top Summary Cards: You Will Get vs You Will Give (From Backend) */}
         <View style={styles.summaryCardsRow}>
           <View
             style={[
@@ -151,7 +181,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 { color: palette.receiveSageGreen },
               ]}
             >
-              {formatINR(totalWillGetPaise)}
+              {formatINR(summary?.totalWillGetPaise || 0)}
             </Text>
             <Text style={[styles.summaryBoxSub, { color: palette.textMocha }]}>
               Market / Customers Baki
@@ -181,7 +211,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 { color: palette.giveTerracottaRed },
               ]}
             >
-              {formatINR(totalWillGivePaise)}
+              {formatINR(summary?.totalWillGivePaise || 0)}
             </Text>
             <Text style={[styles.summaryBoxSub, { color: palette.textMocha }]}>
               Suppliers / Wholesalers Baki
@@ -238,196 +268,214 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
         })}
       </ScrollView>
 
-      {/* 3. Customer & Supplier Ledger List */}
+      {/* 3. Customer & Supplier Ledger List (With Empty State) */}
       <View style={styles.listContainer}>
-        {filteredContacts.map((contact) => {
-          const isReceivable = contact.direction === 'RECEIVABLE';
-          const badgeColor =
-            contact.dueTag === 'OVERDUE'
-              ? palette.giveTerracottaRed
-              : contact.dueTag === 'DUE_TODAY'
-                ? palette.warningAmber
-                : palette.primaryBrown;
+        {filteredContacts.length === 0 ? (
+          <EmptyStateCard
+            emoji="📒"
+            title="No Udhaar Records Yet"
+            message="No udhaar records match this filter. Tap below or use the mic to record your first customer or supplier entry!"
+            actionLabel="+ Record First Udhaar"
+            onActionPress={() => setShowNewUdhaarModal(true)}
+          />
+        ) : (
+          filteredContacts.map((contact) => {
+            const isReceivable = contact.direction === 'RECEIVABLE';
+            const badgeColor =
+              contact.dueTag === 'OVERDUE'
+                ? palette.giveTerracottaRed
+                : contact.dueTag === 'DUE_TODAY'
+                  ? palette.warningAmber
+                  : palette.primaryBrown;
 
-          return (
-            <TouchableOpacity
-              key={contact.id}
-              activeOpacity={0.9}
-              onPress={() => onOpenContactDetail(contact)}
-              style={[
-                styles.customerCard,
-                {
-                  backgroundColor: palette.surfaceBeige,
-                  borderColor: palette.borderLatte,
-                },
-              ]}
-            >
-              {/* Top Row: Name + Remaining Balance */}
-              <View style={styles.cardHeaderRow}>
-                <View style={styles.nameSection}>
-                  <View
-                    style={[
-                      styles.avatarCircle,
-                      { backgroundColor: palette.primaryBrown },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.avatarInitial,
-                        { color: palette.textOnPrimary },
-                      ]}
-                    >
-                      {contact.displayName.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.customerName,
-                        { color: palette.textEspresso },
-                      ]}
-                    >
-                      {contact.displayName}
-                    </Text>
-                    <Text
-                      style={[styles.customerNote, { color: palette.textMocha }]}
-                    >
-                      {contact.titleOrNote}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text
-                    style={[
-                      styles.directionMiniTag,
-                      {
-                        color: isReceivable
-                          ? palette.receiveSageGreen
-                          : palette.giveTerracottaRed,
-                      },
-                    ]}
-                  >
-                    {isReceivable ? 'YOU WILL GET' : 'YOU WILL GIVE'}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.remainingAmount,
-                      {
-                        color: isReceivable
-                          ? palette.receiveSageGreen
-                          : palette.giveTerracottaRed,
-                      },
-                    ]}
-                  >
-                    {formatINR(contact.remainingPaise)}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Middle Row: Partial Payment Breakdown Pill */}
-              <View
+            return (
+              <TouchableOpacity
+                key={contact.obligationId}
+                activeOpacity={0.9}
+                onPress={() => onOpenContactDetail(contact.contactId)}
                 style={[
-                  styles.breakdownBar,
+                  styles.customerCard,
                   {
-                    backgroundColor: palette.surfaceElevated,
+                    backgroundColor: palette.surfaceBeige,
                     borderColor: palette.borderLatte,
                   },
                 ]}
               >
-                <Text style={[styles.breakdownText, { color: palette.textMocha }]}>
-                  Original:{' '}
-                  <Text style={{ fontWeight: '700', color: palette.textEspresso }}>
-                    {formatINR(contact.principalPaise)}
-                  </Text>
-                </Text>
-                <Text style={[styles.breakdownText, { color: palette.textMocha }]}>
-                  Paid:{' '}
-                  <Text
-                    style={{
-                      fontWeight: '700',
-                      color: palette.receiveSageGreen,
-                    }}
-                  >
-                    {formatINR(contact.repaidPaise)}
-                  </Text>
-                </Text>
-                <Text style={[styles.breakdownText, { color: palette.textMocha }]}>
-                  Remaining:{' '}
-                  <Text
-                    style={{
-                      fontWeight: '800',
-                      color: palette.giveTerracottaRed,
-                    }}
-                  >
-                    {formatINR(contact.remainingPaise)}
-                  </Text>
-                </Text>
-              </View>
-
-              {/* Footer Row: Due Date Status + Direct WhatsApp [ 💬 Remind ] Button */}
-              <View style={styles.cardFooterRow}>
-                <View style={styles.badgeGroup}>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: badgeColor },
-                    ]}
-                  >
-                    <Text
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.nameSection}>
+                    <View
                       style={[
-                        styles.statusBadgeText,
-                        { color: palette.textOnPrimary },
+                        styles.avatarCircle,
+                        { backgroundColor: palette.primaryBrown },
                       ]}
                     >
-                      {contact.status === 'SETTLED'
-                        ? '✅ SETTLED'
-                        : contact.dueTag === 'OVERDUE'
-                          ? `🚨 OVERDUE (${contact.dueDate})`
-                          : contact.dueTag === 'DUE_TODAY'
-                            ? `⏰ DUE TODAY (${contact.dueDate})`
-                            : `📅 Due: ${contact.dueDate}`}
-                    </Text>
+                      <Text
+                        style={[
+                          styles.avatarInitial,
+                          { color: palette.textOnPrimary },
+                        ]}
+                      >
+                        {contact.displayName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.customerName,
+                          { color: palette.textEspresso },
+                        ]}
+                      >
+                        {contact.displayName}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.customerNote,
+                          { color: palette.textMocha },
+                        ]}
+                      >
+                        {contact.titleOrNote}
+                      </Text>
+                    </View>
                   </View>
 
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text
+                      style={[
+                        styles.directionMiniTag,
+                        {
+                          color: isReceivable
+                            ? palette.receiveSageGreen
+                            : palette.giveTerracottaRed,
+                        },
+                      ]}
+                    >
+                      {isReceivable ? 'YOU WILL GET' : 'YOU WILL GIVE'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.remainingAmount,
+                        {
+                          color: isReceivable
+                            ? palette.receiveSageGreen
+                            : palette.giveTerracottaRed,
+                        },
+                      ]}
+                    >
+                      {formatINR(contact.remainingPaise)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  style={[
+                    styles.breakdownBar,
+                    {
+                      backgroundColor: palette.surfaceElevated,
+                      borderColor: palette.borderLatte,
+                    },
+                  ]}
+                >
                   <Text
-                    style={[
-                      styles.partialTagText,
-                      { color: palette.textMocha },
-                    ]}
+                    style={[styles.breakdownText, { color: palette.textMocha }]}
                   >
-                    {contact.status}
+                    Original:{' '}
+                    <Text
+                      style={{ fontWeight: '700', color: palette.textEspresso }}
+                    >
+                      {formatINR(contact.principalPaise)}
+                    </Text>
+                  </Text>
+                  <Text
+                    style={[styles.breakdownText, { color: palette.textMocha }]}
+                  >
+                    Paid:{' '}
+                    <Text
+                      style={{
+                        fontWeight: '700',
+                        color: palette.receiveSageGreen,
+                      }}
+                    >
+                      {formatINR(contact.repaidPaise)}
+                    </Text>
+                  </Text>
+                  <Text
+                    style={[styles.breakdownText, { color: palette.textMocha }]}
+                  >
+                    Remaining:{' '}
+                    <Text
+                      style={{
+                        fontWeight: '800',
+                        color: palette.giveTerracottaRed,
+                      }}
+                    >
+                      {formatINR(contact.remainingPaise)}
+                    </Text>
                   </Text>
                 </View>
 
-                {isReceivable && contact.remainingPaise > 0 && (
-                  <TouchableOpacity
-                    onPress={() => handleDirectWhatsAppRemind(contact)}
-                    style={[
-                      styles.remindButton,
-                      {
-                        backgroundColor: palette.receiveSageTint,
-                        borderColor: palette.receiveSageGreen,
-                      },
-                    ]}
-                  >
-                    <Text
+                <View style={styles.cardFooterRow}>
+                  <View style={styles.badgeGroup}>
+                    <View
                       style={[
-                        styles.remindButtonText,
-                        { color: palette.receiveSageGreen },
+                        styles.statusBadge,
+                        { backgroundColor: badgeColor },
                       ]}
                     >
-                      💬 Remind
+                      <Text
+                        style={[
+                          styles.statusBadgeText,
+                          { color: palette.textOnPrimary },
+                        ]}
+                      >
+                        {contact.status === 'SETTLED'
+                          ? '✅ SETTLED'
+                          : contact.dueTag === 'OVERDUE'
+                            ? `🚨 OVERDUE (${contact.dueDate})`
+                            : contact.dueTag === 'DUE_TODAY'
+                              ? `⏰ DUE TODAY (${contact.dueDate})`
+                              : `📅 Due: ${contact.dueDate}`}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={[
+                        styles.partialTagText,
+                        { color: palette.textMocha },
+                      ]}
+                    >
+                      {contact.status}
                     </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+                  </View>
+
+                  {isReceivable && contact.remainingPaise > 0 && (
+                    <TouchableOpacity
+                      onPress={() => handleDirectWhatsAppRemind(contact)}
+                      style={[
+                        styles.remindButton,
+                        {
+                          backgroundColor: palette.receiveSageTint,
+                          borderColor: palette.receiveSageGreen,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.remindButtonText,
+                          { color: palette.receiveSageGreen },
+                        ]}
+                      >
+                        💬 Remind
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        )}
       </View>
 
-      {/* Modal: Add New Customer / Supplier Udhaar */}
+      {/* Modal: Create New Udhaar Obligation via React Query Mutation */}
       <Modal visible={showNewUdhaarModal} transparent animationType="slide">
         <View style={styles.modalBackdrop}>
           <View
@@ -500,12 +548,31 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             </View>
 
             <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Customer / Supplier Ka Naam
+              Customer / Supplier Name
             </Text>
             <TextInput
               value={contactName}
               onChangeText={setContactName}
-              placeholder="e.g. राजेश किराना / Rajesh Store"
+              placeholder="Enter customer or supplier name"
+              placeholderTextColor={palette.textMocha}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: palette.surfaceElevated,
+                  borderColor: palette.borderLatte,
+                  color: palette.textEspresso,
+                },
+              ]}
+            />
+
+            <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
+              Phone Number (for WhatsApp Reminder)
+            </Text>
+            <TextInput
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              placeholder="+91..."
+              keyboardType="phone-pad"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -523,7 +590,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             <TextInput
               value={principalRupees}
               onChangeText={setPrincipalRupees}
-              placeholder="e.g. 2000"
+              placeholder="Enter amount"
               keyboardType="numeric"
               placeholderTextColor={palette.textMocha}
               style={[
@@ -537,12 +604,12 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             />
 
             <Text style={[styles.inputLabel, { color: palette.textEspresso }]}>
-              Due Date (YYYY-MM-DD) & Samaan Note
+              Due Date (YYYY-MM-DD) & Note
             </Text>
             <TextInput
               value={dueDate}
               onChangeText={setDueDate}
-              placeholder="2026-11-10"
+              placeholder="YYYY-MM-DD"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -557,7 +624,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             <TextInput
               value={note}
               onChangeText={setNote}
-              placeholder="e.g. 2 Bori Chini & Oil Carton"
+              placeholder="Items or bill note"
               placeholderTextColor={palette.textMocha}
               style={[
                 styles.input,
@@ -583,6 +650,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={handleCreateUdhaar}
+                disabled={createObligationMutation.isPending}
                 style={[
                   styles.saveBtn,
                   { backgroundColor: palette.primaryBrown },
@@ -591,7 +659,9 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
                 <Text
                   style={{ color: palette.textOnPrimary, fontWeight: '800' }}
                 >
-                  ✅ Confirm & Save
+                  {createObligationMutation.isPending
+                    ? 'Saving...'
+                    : '✅ Confirm & Save'}
                 </Text>
               </TouchableOpacity>
             </View>

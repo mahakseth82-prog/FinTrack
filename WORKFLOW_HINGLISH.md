@@ -34,6 +34,20 @@ App ka look bilkul premium, aankhon ko sukoon dene wala **Warm Cream/Beige aur R
      - Dukaan ya chote business ka पक्का (permanent) **Customer & Supplier Udhaar Khata**, kisse kitna lena hai (*You Will Get* — Olive/Sage Green `#3B7A57`), kisko kitna dena hai (*You Will Give* — Terracotta Red `#B84A39`), partial payments, aur WhatsApp payment reminders.
 - **Zero Mixing:** Personal aur Business dono alag `workspace_id` par chalenge taaki ghar ka kharcha aur dukaan ka galla kabhi aapas mein mix na ho.
 
+### Rule 4: Zero Hardcoded Dummy Data (100% Live API + TanStack React Query)
+- Frontend screens (`PersonalDashboardScreen`, `BusinessDashboardScreen`, `CustomerDetailScreen`) ke andar koi bhi fake array, dummy JSON, ya hardcoded number nahi hoga.
+- Mobile app `/mobile/src/services/api.ts` ke zariye `http://<BACKEND_HOST>:5000/api/v1` se live data mangwayegi, jisme har request ke saath `Authorization: Bearer <JWT_TOKEN>` aur `X-Workspace-Id: <WORKSPACE_ID>` jayega.
+- **TanStack React Query** hooks (`useDashboardSummary()`, `useUdhaarLedger()`, `useContactsList()`, `useBudgets()`) har screen par **4 explicit states** sambhalenge:
+  1. **Loading State:** Animated Cream/Beige Skeleton Loader (koi blank screen nahi).
+  2. **Empty State:** Sundar illustration aur 1-tap action button.
+  3. **Error State:** Backend unreachable hone par `[ 🔄 Retry ]` button.
+  4. **Success State:** Real Supabase database ka data.
+- **Database Seeding (`/supabase/seed.sql`):** Agar testing ke liye sample data chahiye, toh woh frontend JS mein nahi balki `/supabase/seed.sql` script ke zariye seedha PostgreSQL database mein jayega.
+
+### Rule 5: Proactive External Credential Checkpoints (No Fake Keys)
+- Hum kabhi bhi code mein dummy API keys ya fake auth bypass nahi daalenge.
+- Backend start hote hi `zod` (`backend/src/config/env.ts`) check karega ki saari `.env` keys (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`) sahi hain ya nahi. Agar koi key missing hogi toh server saaf Hinglish/English guide print karega.
+
 ---
 
 ## 2. 🛠️ Tech Stack Explained Simply (Kaunsa Tool Kya Kaam Karega?)

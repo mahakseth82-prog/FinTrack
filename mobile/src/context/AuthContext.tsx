@@ -1,19 +1,26 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 
 export interface FinTrackUser {
   id: string;
   fullName: string;
-  phoneOrEmail: string;
+  email: string;
   preferredLanguage: 'HINGLISH' | 'HINDI' | 'ENGLISH';
-  isDemoUser: boolean;
 }
 
 interface AuthContextValue {
   user: FinTrackUser | null;
   isLoading: boolean;
-  signInWithDemo: (name?: string) => void;
-  signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
+  isSupabaseReady: boolean;
+  signInWithEmail: (
+    email: string,
+    password: string
+  ) => Promise<{ error?: string }>;
+  signUpWithEmail: (
+    fullName: string,
+    email: string,
+    password: string
+  ) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -22,49 +29,101 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<FinTrackUser | null>({
-    id: '00000000-0000-0000-0000-000000000001',
-    fullName: 'Aarav Verma',
-    phoneOrEmail: '+91 98765 43210',
-    preferredLanguage: 'HINGLISH',
-    isDemoUser: !isSupabaseConfigured,
-  });
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<FinTrackUser | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const signInWithDemo = (name = 'Aarav Verma') => {
-    setUser({
-      id: '00000000-0000-0000-0000-000000000001',
-      fullName: name,
-      phoneOrEmail: '+91 98765 43210',
-      preferredLanguage: 'HINGLISH',
-      isDemoUser: true,
+  useEffect(() => {
+    if (!supabase) {
+      setIsLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          fullName:
+            session.user.user_metadata?.full_name || 'FinTrack User',
+          email: session.user.email || '',
+          preferredLanguage: 'HINGLISH',
+        });
+      }
+      setIsLoading(false);
     });
-  };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) {
+          setUser({
+            id: session.user.id,
+            fullName:
+              session.user.user_metadata?.full_name || 'FinTrack User',
+            email: session.user.email || '',
+            preferredLanguage: 'HINGLISH',
+          });
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   const signInWithEmail = async (
     email: string,
     password: string
   ): Promise<{ error?: string }> => {
     if (!supabase) {
-      signInWithDemo(email.split('@')[0] || 'FinTrack User');
-      return {};
+      return {
+        error:
+          'Supabase credentials missing in mobile/.env. Please add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.',
+      };
     }
+
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error || !data.user) {
-        return { error: error?.message || 'Login failed' };
+      if (error) {
+        return { error: error.message };
       }
-      setUser({
-        id: data.user.id,
-        fullName: data.user.user_metadata?.full_name || 'FinTrack User',
-        phoneOrEmail: data.user.email || email,
-        preferredLanguage: 'HINGLISH',
-        isDemoUser: false,
+      return {};
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const signUpWithEmail = async (
+    fullName: string,
+    email: string,
+    password: string
+  ): Promise<{ error?: string }> => {
+    if (!supabase) {
+      return {
+        error:
+          'Supabase credentials missing in mobile/.env. Please add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.',
+      };
+    }
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
       });
+      if (error) {
+        return { error: error.message };
+      }
       return {};
     } finally {
       setIsLoading(false);
@@ -80,7 +139,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, signInWithDemo, signInWithEmail, signOut }}
+      value={{
+        user,
+        isLoading,
+        isSupabaseReady: isSupabaseConfigured,
+        signInWithEmail,
+        signUpWithEmail,
+        signOut,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -94,4 +160,3 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
-

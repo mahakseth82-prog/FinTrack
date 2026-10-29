@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,30 +8,36 @@ import {
 } from 'react-native';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { ContactLedgerItem } from '../context/LedgerContext';
+import { useWorkspaces } from '../hooks/useFinTrackQueries';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
 import { AuthScreen } from '../screens/AuthScreen';
 import { PersonalDashboardScreen } from '../screens/PersonalDashboardScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
+import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
 export type ActiveTab = 'HOME' | 'UDHAAR' | 'DRAFTS' | 'SETTINGS';
 
 export const RootNavigator: React.FC = () => {
   const { user } = useAuth();
-  const { mode, palette } = useFinTrackTheme();
+  const { mode, palette, registerBackendWorkspaces } = useFinTrackTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab>('HOME');
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     null
   );
 
+  // Fetch user's live workspaces from /api/v1/workspaces once authenticated
+  const workspacesQuery = useWorkspaces();
+
+  useEffect(() => {
+    if (workspacesQuery.data?.workspaces) {
+      registerBackendWorkspaces(workspacesQuery.data.workspaces);
+    }
+  }, [workspacesQuery.data]);
+
   if (!user) {
     return <AuthScreen />;
   }
-
-  const handleOpenContactDetail = (contact: ContactLedgerItem) => {
-    setSelectedContactId(contact.id);
-  };
 
   return (
     <SafeAreaView
@@ -40,33 +46,45 @@ export const RootNavigator: React.FC = () => {
         { backgroundColor: palette.backgroundCream },
       ]}
     >
-      {/* Top Mode Switcher Header (Hidden when inside full-screen Customer Chat Timeline) */}
       {!selectedContactId && <HeaderModeSwitcher />}
 
-      {/* Main Screen Router */}
       <View style={styles.body}>
-        {selectedContactId ? (
+        {workspacesQuery.isLoading ? (
+          <View style={{ padding: 16 }}>
+            <SkeletonLoader count={3} height={110} />
+          </View>
+        ) : workspacesQuery.isError ? (
+          <View style={{ padding: 16 }}>
+            <ErrorRetryCard
+              errorMessage={
+                workspacesQuery.error instanceof Error
+                  ? workspacesQuery.error.message
+                  : 'Unable to load workspaces from FinTrack backend.'
+              }
+              onRetry={() => workspacesQuery.refetch()}
+            />
+          </View>
+        ) : selectedContactId ? (
           <CustomerDetailScreen
             contactId={selectedContactId}
             onBack={() => setSelectedContactId(null)}
           />
         ) : activeTab === 'UDHAAR' ? (
           <BusinessDashboardScreen
-            onOpenContactDetail={handleOpenContactDetail}
+            onOpenContactDetail={(id) => setSelectedContactId(id)}
           />
         ) : mode === 'PERSONAL' ? (
           <PersonalDashboardScreen
-            onOpenContactDetail={handleOpenContactDetail}
+            onOpenContactDetail={(id) => setSelectedContactId(id)}
             onOpenDraftsTab={() => setActiveTab('DRAFTS')}
           />
         ) : (
           <BusinessDashboardScreen
-            onOpenContactDetail={handleOpenContactDetail}
+            onOpenContactDetail={(id) => setSelectedContactId(id)}
           />
         )}
       </View>
 
-      {/* Bottom Bar with Center Floating 🎙️ Mic Button */}
       {!selectedContactId && (
         <View
           style={[
@@ -115,7 +133,6 @@ export const RootNavigator: React.FC = () => {
             </Text>
           </TouchableOpacity>
 
-          {/* Center Floating Voice Mic Button */}
           <TouchableOpacity
             activeOpacity={0.9}
             style={[
