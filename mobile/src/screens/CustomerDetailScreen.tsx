@@ -21,6 +21,10 @@ import {
   EmptyStateCard,
   ErrorRetryCard,
 } from '../components/QueryStateViews';
+import {
+  PoliteReminderModal,
+  ReminderTargetInfo,
+} from '../components/PoliteReminderModal';
 
 interface CustomerDetailProps {
   contactId: string;
@@ -46,6 +50,8 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
   const [amountRupees, setAmountRupees] = useState('');
   const [paymentVia, setPaymentVia] = useState<PaymentChannel>('UPI');
   const [note, setNote] = useState('');
+  const [reminderTarget, setReminderTarget] =
+    useState<ReminderTargetInfo | null>(null);
 
   // 1. Loading State
   if (detailQuery.isLoading) {
@@ -117,16 +123,16 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
     setEntryModalAction(null);
   };
 
-  const handleWhatsAppRemind = async () => {
-    const cleanPhone = contact.phoneNumber.replace(/[^\d+]/g, '');
-    const amountStr = formatINR(remainingPaise);
-    const msg = `Namaste ${contact.displayName} ji 🙏, FinTrack par aapka ${amountStr} ka balance (Original: ${formatINR(principalPaise)}, Paid: ${formatINR(repaidPaise)}) due hai. Jab suvidha ho toh UPI kar dijiyega. Dhanyawad!`;
-    const url = `https://wa.me/${cleanPhone.replace('+', '')}?text=${encodeURIComponent(msg)}`;
-    try {
-      await Linking.openURL(url);
-    } catch {
-      // Simulator fallback
-    }
+  const handleWhatsAppRemind = () => {
+    if (!obligation) return;
+    setReminderTarget({
+      obligationId: obligation.id,
+      contactId: contact.id,
+      contactName: contact.displayName,
+      phoneNumber: contact.phoneNumber,
+      remainingPaise,
+      dueDate: obligation.dueDate,
+    });
   };
 
   return (
@@ -553,6 +559,12 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
           </View>
         </View>
       </Modal>
+
+      <PoliteReminderModal
+        visible={reminderTarget !== null}
+        target={reminderTarget}
+        onClose={() => setReminderTarget(null)}
+      />
     </View>
   );
 };

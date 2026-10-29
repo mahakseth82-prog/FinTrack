@@ -3,6 +3,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import ledgerRoutes from './routes/ledger';
 import voiceRoutes from './routes/voice';
+import reminderRoutes from './routes/reminders';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.get('/api/v1/health', (_req, res) => {
 // Mount v1 API routes
 app.use('/api/v1', ledgerRoutes);
 app.use('/api/v1', voiceRoutes);
+app.use('/api/v1', reminderRoutes);
 
 if (require.main === module) {
   app.listen(env.PORT, () => {

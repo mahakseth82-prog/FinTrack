@@ -40,6 +40,33 @@ export interface IngestionDraftDto {
   createdAt: string;
 }
 
+export type ReminderLanguage = 'HINGLISH' | 'HINDI' | 'ENGLISH';
+export type ReminderTone = 'FRIENDLY' | 'FORMAL';
+
+export interface DueReminderAlertDto {
+  obligationId: string;
+  contactId: string;
+  contactName: string;
+  phoneNumber: string;
+  principalPaise: Paise;
+  repaidPaise: Paise;
+  remainingPaise: Paise;
+  remainingFormatted: string;
+  dueDate: string;
+  urgency: 'OVERDUE' | 'DUE_TODAY' | 'DUE_IN_24H';
+  titleOrNote: string;
+}
+
+export interface ComposedReminderResponse {
+  obligationId: string;
+  contactId: string;
+  contactName: string;
+  phoneNumber: string;
+  language: ReminderLanguage;
+  tone: ReminderTone;
+  message: string;
+}
+
 export interface WorkspaceDto {
   id: string;
   mode: WorkspaceMode;

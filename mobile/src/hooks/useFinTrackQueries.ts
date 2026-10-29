@@ -16,6 +16,10 @@ import {
   ObligationDirection,
   IngestionDraftDto,
   DraftIntent,
+  ReminderLanguage,
+  ReminderTone,
+  DueReminderAlertDto,
+  ComposedReminderResponse,
 } from '../types/ledger';
 
 /**
@@ -312,6 +316,67 @@ export function useDismissDraft(workspaceId: string | null) {
       queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
       queryClient.invalidateQueries({
         queryKey: ['dashboard-summary', workspaceId],
+      });
+    },
+  });
+}
+
+/**
+ * Fetches 24-hour due and overdue udhaar alerts from `/api/v1/reminders/due-soon`.
+ */
+export function useDueReminders(workspaceId: string | null) {
+  return useQuery({
+    queryKey: ['due-reminders', workspaceId],
+    queryFn: () =>
+      apiFetch<{
+        workspaceId: string;
+        dueSoonCount: number;
+        alerts: DueReminderAlertDto[];
+      }>('/reminders/due-soon', { workspaceId }),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/**
+ * Mutation: Compose a polite payment reminder message in Hinglish, Hindi, or English.
+ */
+export function useComposeReminder(workspaceId: string | null) {
+  return useMutation({
+    mutationFn: (payload: {
+      obligationId: string;
+      language: ReminderLanguage;
+      tone: ReminderTone;
+    }) =>
+      apiFetch<ComposedReminderResponse>('/reminders/compose', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+  });
+}
+
+/**
+ * Mutation: Log a sent WhatsApp/SMS reminder in Supabase (`public.reminders` & `public.audit_logs`).
+ */
+export function useLogReminderSent(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      obligationId: string;
+      contactId: string;
+      channel: 'WHATSAPP' | 'SMS';
+      language: ReminderLanguage;
+      composedMessage: string;
+    }) =>
+      apiFetch('/reminders/log-sent', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['due-reminders', workspaceId],
       });
     },
   });

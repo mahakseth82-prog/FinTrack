@@ -13,6 +13,7 @@ import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useUdhaarLedger,
   useCreateObligation,
+  useDueReminders,
 } from '../hooks/useFinTrackQueries';
 import {
   UdhaarLedgerItemDto,
@@ -25,6 +26,10 @@ import {
   EmptyStateCard,
   ErrorRetryCard,
 } from '../components/QueryStateViews';
+import {
+  PoliteReminderModal,
+  ReminderTargetInfo,
+} from '../components/PoliteReminderModal';
 
 type FilterChip = 'ALL' | 'OVERDUE' | 'DUE_TODAY' | 'CUSTOMERS' | 'SUPPLIERS';
 
@@ -39,10 +44,13 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
 
   // Live TanStack React Query Hooks (Zero hardcoded dummy data)
   const ledgerQuery = useUdhaarLedger(activeWorkspaceId);
+  const dueRemindersQuery = useDueReminders(activeWorkspaceId);
   const createObligationMutation = useCreateObligation(activeWorkspaceId);
 
   const [activeFilter, setActiveFilter] = useState<FilterChip>('ALL');
   const [showNewUdhaarModal, setShowNewUdhaarModal] = useState(false);
+  const [reminderTarget, setReminderTarget] =
+    useState<ReminderTargetInfo | null>(null);
   const [contactName, setContactName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [direction, setDirection] = useState<ObligationDirection>('RECEIVABLE');
@@ -88,16 +96,15 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     return true;
   });
 
-  const handleDirectWhatsAppRemind = async (contact: UdhaarLedgerItemDto) => {
-    const cleanPhone = contact.phoneNumber.replace(/[^\d+]/g, '');
-    const amountStr = formatINR(contact.remainingPaise);
-    const politeMsg = `Namaste ${contact.displayName} ji 🙏, FinTrack Vyapaar Khata par aapka ${amountStr} ka balance (${contact.titleOrNote}) due hai. Jab suvidha ho toh UPI ya cash se bhej dijiyega. Dhanyawad!`;
-    const url = `https://wa.me/${cleanPhone.replace('+', '')}?text=${encodeURIComponent(politeMsg)}`;
-    try {
-      await Linking.openURL(url);
-    } catch {
-      // Fallback when WhatsApp is not installed on emulator
-    }
+  const handleDirectWhatsAppRemind = (contact: UdhaarLedgerItemDto) => {
+    setReminderTarget({
+      obligationId: contact.obligationId,
+      contactId: contact.contactId,
+      contactName: contact.displayName,
+      phoneNumber: contact.phoneNumber,
+      remainingPaise: contact.remainingPaise,
+      dueDate: contact.dueDate,
+    });
   };
 
   const handleCreateUdhaar = async () => {
@@ -219,6 +226,30 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
           </View>
         </View>
       </View>
+
+      {/* 1B. 24-Hour Due Alert Banner (From /api/v1/reminders/due-soon) */}
+      {(dueRemindersQuery.data?.dueSoonCount || 0) > 0 && (
+        <View
+          style={[
+            styles.dueAlertBanner,
+            {
+              backgroundColor: palette.warningAmberTint,
+              borderColor: palette.accentWarm,
+            },
+          ]}
+        >
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.dueAlertTitle, { color: palette.textEspresso }]}
+            >
+              ⏰ {dueRemindersQuery.data?.dueSoonCount} Udhaar Due Within 24 Hours / Overdue
+            </Text>
+            <Text style={[styles.dueAlertSub, { color: palette.textMocha }]}>
+              Tap [ 💬 Remind ] below to send a polite Hindi/Hinglish/English WhatsApp message.
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* 2. Quick Filter Chips */}
       <ScrollView
@@ -668,6 +699,13 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
           </View>
         </View>
       </Modal>
+
+      {/* Polite Reminder Modal (Hinglish / Hindi / English) */}
+      <PoliteReminderModal
+        visible={reminderTarget !== null}
+        target={reminderTarget}
+        onClose={() => setReminderTarget(null)}
+      />
     </ScrollView>
   );
 };
@@ -730,6 +768,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
     fontWeight: '600',
+  },
+  dueAlertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  dueAlertTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  dueAlertSub: {
+    fontSize: 11,
+    marginTop: 2,
   },
   filterRow: {
     gap: 8,
