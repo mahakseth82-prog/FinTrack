@@ -17,9 +17,10 @@ import { PersonalDashboardScreen } from '../screens/PersonalDashboardScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
 import { DraftsScreen } from '../screens/DraftsScreen';
+import { ScannerAndUpiScreen } from '../screens/ScannerAndUpiScreen';
 import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
-export type ActiveTab = 'HOME' | 'UDHAAR' | 'DRAFTS' | 'SETTINGS';
+export type ActiveTab = 'HOME' | 'UDHAAR' | 'DRAFTS' | 'SCANNER';
 
 export const RootNavigator: React.FC = () => {
   const { user } = useAuth();
@@ -83,6 +84,13 @@ export const RootNavigator: React.FC = () => {
             }}
             onOpenVoiceSheet={() => {
               setSelectedDraft(null);
+              setVoiceSheetVisible(true);
+            }}
+          />
+        ) : activeTab === 'SCANNER' ? (
+          <ScannerAndUpiScreen
+            onOpenDraftForConfirmation={(draft) => {
+              setSelectedDraft(draft);
               setVoiceSheetVisible(true);
             }}
           />
@@ -198,7 +206,7 @@ export const RootNavigator: React.FC = () => {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => setActiveTab('SETTINGS')}
+            onPress={() => setActiveTab('SCANNER')}
             style={styles.tabItem}
           >
             <Text
@@ -206,13 +214,13 @@ export const RootNavigator: React.FC = () => {
                 styles.tabLabel,
                 {
                   color:
-                    activeTab === 'SETTINGS'
+                    activeTab === 'SCANNER'
                       ? palette.primaryBrown
                       : palette.textMocha,
                 },
               ]}
             >
-              ⚙️ Settings
+              📷 Scan/UPI
             </Text>
           </TouchableOpacity>
         </View>

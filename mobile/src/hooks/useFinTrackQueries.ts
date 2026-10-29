@@ -382,3 +382,58 @@ export function useLogReminderSent(workspaceId: string | null) {
   });
 }
 
+/**
+ * Mutation: Scan a paper bill / parchi image via Gemini Vision (`/api/v1/ingestion/bill-ocr`).
+ */
+export function useScanBillOcr(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: { imageBase64: string; mimeType?: string }) =>
+      apiFetch<{ draft: IngestionDraftDto }>('/ingestion/bill-ocr', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+    },
+  });
+}
+
+/**
+ * Mutation: Ingest an Android UPI Notification (`NotificationListenerService`)
+ * with automatic SHA-256 fingerprint deduplication (`/api/v1/ingestion/upi-notification`).
+ */
+export function useIngestUpiNotification(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      packageName: string;
+      title: string;
+      body: string;
+      postedAtMs?: number;
+    }) =>
+      apiFetch<{
+        duplicateSkipped: boolean;
+        reason?: string;
+        fingerprint: string;
+        draft: IngestionDraftDto;
+      }>('/ingestion/upi-notification', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+    },
+  });
+}
+

@@ -4,6 +4,7 @@ import { env } from './config/env';
 import ledgerRoutes from './routes/ledger';
 import voiceRoutes from './routes/voice';
 import reminderRoutes from './routes/reminders';
+import ingestionRoutes from './routes/ingestion';
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.get('/api/v1/health', (_req, res) => {
 app.use('/api/v1', ledgerRoutes);
 app.use('/api/v1', voiceRoutes);
 app.use('/api/v1', reminderRoutes);
+app.use('/api/v1', ingestionRoutes);
 
 if (require.main === module) {
   app.listen(env.PORT, () => {
