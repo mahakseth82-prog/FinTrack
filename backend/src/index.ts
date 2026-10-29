@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { env } from './config/env';
 import ledgerRoutes from './routes/ledger';
+import voiceRoutes from './routes/voice';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.get('/api/v1/health', (_req, res) => {
 
 // Mount v1 API routes
 app.use('/api/v1', ledgerRoutes);
+app.use('/api/v1', voiceRoutes);
 
 if (require.main === module) {
   app.listen(env.PORT, () => {

@@ -6,6 +6,39 @@ export type PaymentChannel = 'UPI' | 'CASH' | 'CARD' | 'BANK_TRANSFER';
 export type ObligationDirection = 'RECEIVABLE' | 'PAYABLE';
 export type ObligationStatus = 'OPEN' | 'PARTIALLY_PAID' | 'SETTLED';
 export type ContactKind = 'CUSTOMER' | 'SUPPLIER' | 'FRIEND';
+export type DraftSource = 'VOICE' | 'BILL_OCR' | 'UPI_NOTIFICATION' | 'MANUAL';
+export type DraftIntent =
+  | 'EXPENSE'
+  | 'INCOME'
+  | 'UDHAAR_GAVE'
+  | 'UDHAAR_GOT'
+  | 'UDHAAR_REPAYMENT';
+export type DraftStatus =
+  | 'NEEDS_CLARIFICATION'
+  | 'PENDING_CONFIRMATION'
+  | 'CONFIRMED'
+  | 'DISMISSED';
+
+export interface IngestionDraftDto {
+  id: string;
+  workspaceId: string;
+  source: DraftSource;
+  intent: DraftIntent;
+  status: DraftStatus;
+  rawInputText: string;
+  extractedAmountPaise: Paise | null;
+  extractedAmountRupees: number | null;
+  extractedAmountFormatted: string | null;
+  extractedContactName: string | null;
+  matchedContactId: string | null;
+  extractedCategoryName: string | null;
+  extractedDueDate: string | null;
+  paymentVia: PaymentChannel;
+  ambiguityQuestion: string | null;
+  aiConfidence: number;
+  description: string;
+  createdAt: string;
+}
 
 export interface WorkspaceDto {
   id: string;
@@ -115,3 +148,4 @@ export interface ContactDetailResponse {
   } | null;
   entries: UdhaarChatEntryDto[];
 }
+

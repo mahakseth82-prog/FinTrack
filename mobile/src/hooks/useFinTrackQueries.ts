@@ -14,6 +14,8 @@ import {
   PaymentChannel,
   ContactKind,
   ObligationDirection,
+  IngestionDraftDto,
+  DraftIntent,
 } from '../types/ledger';
 
 /**
@@ -185,3 +187,133 @@ export function useRecordLedgerEntry(
     },
   });
 }
+
+/**
+ * Fetches all pending or clarification-needed drafts from `/api/v1/drafts`.
+ */
+export function usePendingDrafts(workspaceId: string | null) {
+  return useQuery({
+    queryKey: ['drafts', workspaceId],
+    queryFn: () =>
+      apiFetch<{ workspaceId: string; drafts: IngestionDraftDto[] }>('/drafts', {
+        workspaceId,
+      }),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/**
+ * Mutation: Send voice audio or spoken Hindi/Hinglish/English text to Gemini via `/api/v1/voice/parse`.
+ */
+export function useParseVoiceDraft(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      utteranceText?: string;
+      audioBase64?: string;
+      audioMimeType?: string;
+    }) =>
+      apiFetch<{ draft: IngestionDraftDto }>('/voice/parse', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+    },
+  });
+}
+
+/**
+ * Mutation: Answer an AI ambiguity follow-up question for a draft (`/api/v1/drafts/:id/clarify`).
+ */
+export function useClarifyDraft(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      draftId: string;
+      clarificationAnswer?: string;
+      audioBase64?: string;
+      audioMimeType?: string;
+    }) =>
+      apiFetch<{ draft: IngestionDraftDto }>(
+        `/drafts/${payload.draftId}/clarify`,
+        {
+          method: 'POST',
+          workspaceId,
+          body: payload,
+        }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+    },
+  });
+}
+
+/**
+ * Mutation: Confirm & Save a draft (`/api/v1/drafts/:id/confirm`) into permanent tables
+ * and invalidate all ledger, budget, and dashboard caches.
+ */
+export function useConfirmDraft(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      draftId: string;
+      intent?: DraftIntent;
+      amountRupees?: number | string;
+      contactName?: string;
+      categoryName?: string;
+      dueDate?: string;
+      paymentVia?: PaymentChannel;
+      description?: string;
+    }) =>
+      apiFetch<{
+        confirmed: boolean;
+        entityTable: string;
+        entityId: string;
+      }>(`/drafts/${payload.draftId}/confirm`, {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['udhaar-ledger', workspaceId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['contact-detail'] });
+    },
+  });
+}
+
+/**
+ * Mutation: Dismiss a draft without saving (`/api/v1/drafts/:id/dismiss`).
+ */
+export function useDismissDraft(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (draftId: string) =>
+      apiFetch<{ dismissed: boolean }>(`/drafts/${draftId}/dismiss`, {
+        method: 'POST',
+        workspaceId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drafts', workspaceId] });
+      queryClient.invalidateQueries({
+        queryKey: ['dashboard-summary', workspaceId],
+      });
+    },
+  });
+}
+

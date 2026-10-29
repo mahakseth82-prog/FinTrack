@@ -9,11 +9,14 @@ import {
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspaces } from '../hooks/useFinTrackQueries';
+import { IngestionDraftDto } from '../types/ledger';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
+import { VoiceAssistantSheet } from '../components/VoiceAssistantSheet';
 import { AuthScreen } from '../screens/AuthScreen';
 import { PersonalDashboardScreen } from '../screens/PersonalDashboardScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
+import { DraftsScreen } from '../screens/DraftsScreen';
 import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
 export type ActiveTab = 'HOME' | 'UDHAAR' | 'DRAFTS' | 'SETTINGS';
@@ -25,8 +28,11 @@ export const RootNavigator: React.FC = () => {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(
     null
   );
+  const [voiceSheetVisible, setVoiceSheetVisible] = useState(false);
+  const [selectedDraft, setSelectedDraft] = useState<IngestionDraftDto | null>(
+    null
+  );
 
-  // Fetch user's live workspaces from /api/v1/workspaces once authenticated
   const workspacesQuery = useWorkspaces();
 
   useEffect(() => {
@@ -69,6 +75,17 @@ export const RootNavigator: React.FC = () => {
             contactId={selectedContactId}
             onBack={() => setSelectedContactId(null)}
           />
+        ) : activeTab === 'DRAFTS' ? (
+          <DraftsScreen
+            onSelectDraftForReview={(draft) => {
+              setSelectedDraft(draft);
+              setVoiceSheetVisible(true);
+            }}
+            onOpenVoiceSheet={() => {
+              setSelectedDraft(null);
+              setVoiceSheetVisible(true);
+            }}
+          />
         ) : activeTab === 'UDHAAR' ? (
           <BusinessDashboardScreen
             onOpenContactDetail={(id) => setSelectedContactId(id)}
@@ -84,6 +101,16 @@ export const RootNavigator: React.FC = () => {
           />
         )}
       </View>
+
+      {/* AI Voice Assistant Bottom Sheet */}
+      <VoiceAssistantSheet
+        visible={voiceSheetVisible}
+        initialDraft={selectedDraft}
+        onClose={() => {
+          setVoiceSheetVisible(false);
+          setSelectedDraft(null);
+        }}
+      />
 
       {!selectedContactId && (
         <View
@@ -133,8 +160,13 @@ export const RootNavigator: React.FC = () => {
             </Text>
           </TouchableOpacity>
 
+          {/* Center Floating Voice Mic Button */}
           <TouchableOpacity
             activeOpacity={0.9}
+            onPress={() => {
+              setSelectedDraft(null);
+              setVoiceSheetVisible(true);
+            }}
             style={[
               styles.micButton,
               {
