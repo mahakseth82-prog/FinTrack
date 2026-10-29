@@ -8,9 +8,9 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { MinimalIcon } from '../components/MinimalIcon';
 import {
   useContactDetail,
   useRecordLedgerEntry,
@@ -127,7 +127,7 @@ export const CustomerDetailScreen: React.FC<CustomerDetailProps> = ({
       <View style={styles.topBar}>
         <View style={styles.topBarRow}>
           <TouchableOpacity onPress={onBack} style={styles.backPill}>
-            <Feather name="arrow-left" size={14} color="#0F172A" />
+            <MinimalIcon name="arrow-left" size={14} color="#0F172A" />
             <Text style={styles.backPillText}>Back</Text>
           </TouchableOpacity>
 

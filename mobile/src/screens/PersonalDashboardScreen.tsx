@@ -8,10 +8,10 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { MinimalIcon } from '../components/MinimalIcon';
 import {
   useDashboardSummary,
   useBudgets,
@@ -308,7 +308,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
               disabled={scanBillMutation.isPending}
               style={styles.iconActionBtn}
             >
-              <Feather name="camera" size={14} color="#475569" />
+              <MinimalIcon name="camera" size={14} color="#475569" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -365,7 +365,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             disabled={scanBillMutation.isPending}
             style={styles.quickCameraBtn}
           >
-            <Feather name="camera" size={15} color="#475569" />
+            <MinimalIcon name="camera" size={15} color="#475569" />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleQuickSave}

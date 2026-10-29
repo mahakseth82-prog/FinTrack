@@ -13,14 +13,9 @@
  *   2. BUSINESS MODE: Deep Slate Teal (#0F766E)
  */
 
-import { Platform } from 'react-native';
-
 export type WorkspaceMode = 'PERSONAL' | 'BUSINESS';
 
-export const SYSTEM_FONT_STACK = Platform.select({
-  web: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  default: undefined,
-});
+export const SYSTEM_FONT_STACK: string | undefined = undefined;
 
 export interface FinTrackPalette {
   mode: WorkspaceMode;

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -6,11 +7,11 @@ import {
   StyleSheet,
   SafeAreaView,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useWorkspaces } from '../hooks/useFinTrackQueries';
 import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { MinimalIcon } from '../components/MinimalIcon';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
 import { VoiceAssistantSheet } from '../components/VoiceAssistantSheet';
 import { AuthScreen } from '../screens/AuthScreen';
@@ -96,7 +97,7 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('HOME')}
               style={styles.tabItem}
             >
-              <Feather
+              <MinimalIcon
                 name="home"
                 size={18}
                 color={activeTab === 'HOME' ? palette.primaryBrown : '#94A3B8'}
@@ -125,7 +126,7 @@ export const RootNavigator: React.FC = () => {
                   { backgroundColor: palette.primaryBrown },
                 ]}
               >
-                <Feather name="mic" size={18} color="#FFFFFF" />
+                <MinimalIcon name="mic" size={18} color="#FFFFFF" />
               </TouchableOpacity>
               <Text style={styles.voiceLabel}>Voice</Text>
             </View>
@@ -134,8 +135,8 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('LEDGER')}
               style={styles.tabItem}
             >
-              <Feather
-                name="book-open"
+              <MinimalIcon
+                name="ledger"
                 size={18}
                 color={
                   activeTab === 'LEDGER' ? palette.primaryBrown : '#94A3B8'
