@@ -35,8 +35,8 @@ app.use('/api/v1', reminderRoutes);
 app.use('/api/v1', ingestionRoutes);
 
 if (require.main === module) {
-  app.listen(env.PORT, () => {
-    console.log(`☕ FinTrack Backend API v1 running on http://localhost:${env.PORT}/api/v1`);
+  app.listen(env.PORT, '0.0.0.0', () => {
+    console.log(`☕ FinTrack Backend API v1 running on http://0.0.0.0:${env.PORT}/api/v1`);
   });
 }
 

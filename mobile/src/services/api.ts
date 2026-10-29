@@ -1,8 +1,35 @@
+import { NativeModules } from 'react-native';
 import { supabase } from './supabase';
 
-const BASE_API_URL = (
-  process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000/api/v1'
-).replace(/\/$/, '');
+/**
+ * Resolves the Backend API URL so it works both on emulators AND on a physical phone
+ * scanning the QR code in Expo Go (automatically replaces `localhost` with the laptop's LAN IP
+ * extracted from React Native's bundle scriptURL).
+ */
+function resolveBackendBaseUrl(): string {
+  const configuredUrl = (
+    process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000/api/v1'
+  ).replace(/\/$/, '');
+
+  if (
+    configuredUrl.includes('localhost') ||
+    configuredUrl.includes('127.0.0.1')
+  ) {
+    const scriptURL: string | undefined = NativeModules?.SourceCode?.scriptURL;
+    if (scriptURL) {
+      const match = scriptURL.match(/https?:\/\/(\d+\.\d+\.\d+\.\d+):\d+/);
+      if (match && match[1]) {
+        return configuredUrl
+          .replace('localhost', match[1])
+          .replace('127.0.0.1', match[1]);
+      }
+    }
+  }
+
+  return configuredUrl;
+}
+
+const BASE_API_URL = resolveBackendBaseUrl();
 
 let currentActiveWorkspaceId: string | null = null;
 
@@ -75,4 +102,3 @@ export async function apiFetch<TResponse>(
 
   return (await response.json()) as TResponse;
 }
-
