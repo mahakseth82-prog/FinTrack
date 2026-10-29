@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { isSupabaseConfigured } from './config/supabase';
 import { requireAuth, AuthenticatedRequest } from './middleware/auth';
+import ledgerRoutes from './routes/ledger';
 import {
   rupeesToPaise,
   paiseToRupees,
@@ -17,6 +18,7 @@ const PORT = Number(process.env.PORT) || 4000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use('/api/ledger', ledgerRoutes);
 
 // ============================================================================
 // Health Check & Architecture Status Route
