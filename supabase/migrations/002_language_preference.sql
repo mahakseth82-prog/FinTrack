@@ -37,3 +37,4 @@ WHERE title_or_note ~ '[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]';
 UPDATE public.transactions
 SET merchant_or_payee = 'Clothes Purchase'
 WHERE merchant_or_payee = 'Entry' AND (description ILIKE '%kapde%' OR description ILIKE '%कपड़े%');
+

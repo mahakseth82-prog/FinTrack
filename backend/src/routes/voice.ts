@@ -4,6 +4,7 @@ import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import {
   parseVoiceOrTextWithGemini,
   cleanAndSanitizeScript,
+  parseHindiSpokenAmount,
   LanguagePreference,
 } from '../services/geminiVoiceService';
 import {
@@ -518,9 +519,14 @@ router.post(
         todayIsoDate,
       });
 
+      const finalRupees =
+        (extracted.extractedRupees && extracted.extractedRupees > 0)
+          ? extracted.extractedRupees
+          : parseHindiSpokenAmount(extracted.transcript || utteranceText || '');
+
       const extractedAmountPaise =
-        extracted.extractedRupees && extracted.extractedRupees > 0
-          ? rupeesToPaise(extracted.extractedRupees)
+        finalRupees && finalRupees > 0
+          ? rupeesToPaise(finalRupees)
           : null;
 
       let matchedContactId: string | null = null;

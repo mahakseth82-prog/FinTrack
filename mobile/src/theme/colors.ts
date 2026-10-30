@@ -66,16 +66,28 @@ const SHARED_ENTERPRISE_BASE = {
   warningAmberTint: '#FFFBEB',
 };
 
+export const EMERALD_THEME = {
+  emeraldGreen: '#059669',
+  emeraldGreenDark: '#047857',
+  emeraldGreenLight: '#10B981',
+  emeraldPastel: '#ECFDF5',
+  emeraldTint: '#F0FDF4',
+  alertRed: '#EF4444',
+  alertRedTint: '#FEF2F2',
+  warningOrange: '#F59E0B',
+  warningOrangeTint: '#FFFBEB',
+};
+
 export const PERSONAL_THEME: FinTrackPalette = {
   ...SHARED_ENTERPRISE_BASE,
   mode: 'PERSONAL',
   modeTitle: 'Personal Workspace',
   modeSubtitle: 'Transactions & Monthly Budgets',
   workspaceId: 'ws-personal-001',
-  primaryBrown: '#4338CA',      // Slate Indigo
-  primaryBrownDark: '#312E81',
-  accentWarm: '#4F46E5',
-  pillActiveBg: '#4338CA',
+  primaryBrown: '#059669',      // Emerald Green Primary
+  primaryBrownDark: '#047857',
+  accentWarm: '#10B981',
+  pillActiveBg: '#059669',
   pillInactiveBg: '#F1F5F9',
 };
 

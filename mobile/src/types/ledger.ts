@@ -103,6 +103,14 @@ export interface DashboardSummaryResponse {
   recentTransactions: TransactionDto[];
 }
 
+export interface TransactionsListResponse {
+  workspaceId: string;
+  monthYear: string;
+  totalSpentPaise: Paise;
+  totalIncomePaise: Paise;
+  transactions: TransactionDto[];
+}
+
 export interface BudgetDto {
   id: string;
   categoryId: string;
@@ -180,4 +188,6 @@ export interface ContactDetailResponse {
   } | null;
   entries: UdhaarChatEntryDto[];
 }
+
+
 

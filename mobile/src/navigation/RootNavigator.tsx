@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -15,17 +14,20 @@ import {
   useWorkspaces,
   useParseVoiceDraft,
 } from '../hooks/useFinTrackQueries';
-import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 import { MinimalIcon } from '../components/MinimalIcon';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
 import { LanguagePreferenceModal } from '../components/LanguagePreferenceModal';
 import { AuthScreen } from '../screens/AuthScreen';
 import { PersonalDashboardScreen } from '../screens/PersonalDashboardScreen';
+import { TransactionsScreen } from '../screens/TransactionsScreen';
+import { InsightsScreen } from '../screens/InsightsScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
 import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
-export type ActiveTab = 'HOME' | 'LEDGER';
+export type ActiveTab = 'HOME' | 'TRANSACTIONS' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE';
 
 export const RootNavigator: React.FC = () => {
   const { user, hasSelectedLanguage } = useAuth();
@@ -206,8 +208,7 @@ export const RootNavigator: React.FC = () => {
   };
 
   /**
-   * Directly starts recording the instant the central mic button is clicked.
-   * No intermediate modals, popups, or confirmation screens.
+   * Directly starts recording the instant the mic button is clicked.
    */
   const startRecording = async () => {
     const isHi = user?.preferredLanguage === 'hi';
@@ -215,7 +216,7 @@ export const RootNavigator: React.FC = () => {
     setVoiceStatusType('LISTENING');
     setVoiceStatusMsg(isHi ? 'सुन रहे हैं... बोलिए' : 'Listening... Speak now');
 
-    // 1. Browser Web Speech Recognition (Chrome / Android Browser)
+    // 1. Browser Web Speech Recognition
     if (Platform.OS === 'web') {
       const webGlobal = globalThis as any;
       const SpeechRecognition =
@@ -243,7 +244,6 @@ export const RootNavigator: React.FC = () => {
             latestTranscriptRef.current = trimmed;
             setVoiceStatusMsg(`"${trimmed}"`);
 
-            // Auto-save after 1.8 seconds of natural silence pause
             if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current);
             }
@@ -286,7 +286,7 @@ export const RootNavigator: React.FC = () => {
           recognition.start();
           return;
         } catch {
-          // Fall through to native recording
+          // Fall through
         }
       }
     }
@@ -315,7 +315,7 @@ export const RootNavigator: React.FC = () => {
       nativeRecorderRef.current = recorder;
       setIsRecording(true);
       setVoiceStatusType('LISTENING');
-      setVoiceStatusMsg(isHi ? 'सुन रहे हैं... काम पूरा होने पर माइक दबाएं' : 'Listening... Tap mic when done');
+      setVoiceStatusMsg(isHi ? 'सुन रहे हैं... पूरा होने पर माइक दबाएं' : 'Listening... Tap mic when done');
     } catch (err: unknown) {
       setIsRecording(false);
       setVoiceStatusType('ERROR');
@@ -324,9 +324,6 @@ export const RootNavigator: React.FC = () => {
     }
   };
 
-  /**
-   * Toggles recording on/off directly from the single bottom mic button.
-   */
   const handleMicTap = () => {
     if (isRecording) {
       void stopRecordingAndSave();
@@ -343,7 +340,7 @@ export const RootNavigator: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.outerViewport}>
-      {/* Strict 440px Mobile Viewport Enclosure */}
+      {/* Strict Mobile Frame Enclosure */}
       <View style={styles.mobileFrame}>
         {!selectedContactId && <HeaderModeSwitcher />}
 
@@ -368,12 +365,19 @@ export const RootNavigator: React.FC = () => {
               contactId={selectedContactId}
               onBack={() => setSelectedContactId(null)}
             />
-          ) : activeTab === 'LEDGER' ? (
+          ) : activeTab === 'TRANSACTIONS' ? (
+            <TransactionsScreen />
+          ) : activeTab === 'INSIGHTS' ? (
+            <InsightsScreen />
+          ) : activeTab === 'UDHAAR' ? (
             <BusinessDashboardScreen
               onOpenContactDetail={(id) => setSelectedContactId(id)}
             />
+          ) : activeTab === 'PROFILE' ? (
+            <ProfileScreen />
           ) : mode === 'PERSONAL' ? (
             <PersonalDashboardScreen
+              onNavigateToTab={(t) => setActiveTab(t)}
               onOpenContactDetail={(id) => setSelectedContactId(id)}
             />
           ) : (
@@ -383,7 +387,7 @@ export const RootNavigator: React.FC = () => {
           )}
         </View>
 
-        {/* Floating Non-Intrusive Voice Feedback Pill (Zero Modals / Full Screen Visible) */}
+        {/* Floating Non-Intrusive Voice Feedback Pill */}
         {voiceStatusMsg && (
           <TouchableOpacity
             activeOpacity={0.9}
@@ -409,24 +413,47 @@ export const RootNavigator: React.FC = () => {
           </TouchableOpacity>
         )}
 
+        {/* Floating 1-Tap Mic Action Button (Non-blocking, always available) */}
+        {!selectedContactId && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleMicTap}
+            style={styles.floatingMicFab}
+          >
+            <Animated.View
+              style={[
+                styles.fabInnerCircle,
+                {
+                  backgroundColor: isRecording ? '#DC2626' : EMERALD_THEME.emeraldGreen,
+                  transform: [{ scale: pulseAnim }],
+                },
+              ]}
+            >
+              <MinimalIcon name="mic" size={22} color="#FFFFFF" />
+            </Animated.View>
+          </TouchableOpacity>
+        )}
+
+        {/* Bottom Navigation Bar: 5 Core Tabs [ Home | Transactions | Insights | Udhaar | Profile ] */}
         {!selectedContactId && (
           <View style={styles.bottomBar}>
+            {/* Tab 1: Home */}
             <TouchableOpacity
+              activeOpacity={0.8}
               onPress={() => setActiveTab('HOME')}
               style={styles.tabItem}
             >
               <MinimalIcon
                 name="home"
                 size={18}
-                color={activeTab === 'HOME' ? palette.primaryBrown : '#94A3B8'}
+                color={activeTab === 'HOME' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
                 style={[
                   styles.tabLabel,
-                  {
-                    color:
-                      activeTab === 'HOME' ? palette.primaryBrown : '#64748B',
-                    fontWeight: activeTab === 'HOME' ? '600' : '500',
+                  activeTab === 'HOME' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
                   },
                 ]}
               >
@@ -434,62 +461,99 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Central 1-Tap Mic Button: Starts recording right here with zero modal popups */}
-            <View style={styles.voiceCenterSlot}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={handleMicTap}
-              >
-                <Animated.View
-                  style={[
-                    styles.voiceCircleBtn,
-                    {
-                      backgroundColor: isRecording
-                        ? '#DC2626'
-                        : palette.primaryBrown,
-                      transform: [{ scale: pulseAnim }],
-                    },
-                  ]}
-                >
-                  <MinimalIcon
-                    name="mic"
-                    size={18}
-                    color="#FFFFFF"
-                  />
-                </Animated.View>
-              </TouchableOpacity>
+            {/* Tab 2: Transactions */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('TRANSACTIONS')}
+              style={styles.tabItem}
+            >
+              <MinimalIcon
+                name="transactions"
+                size={18}
+                color={activeTab === 'TRANSACTIONS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
+              />
               <Text
                 style={[
-                  styles.voiceLabel,
-                  isRecording && { color: '#DC2626', fontWeight: '700' },
+                  styles.tabLabel,
+                  activeTab === 'TRANSACTIONS' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
+                  },
                 ]}
               >
-                {isRecording ? (isHi ? 'सुन रहे हैं' : 'Listening') : (isHi ? 'आवाज़' : 'Voice')}
+                {isHi ? 'लेन-देन' : 'Transactions'}
               </Text>
-            </View>
+            </TouchableOpacity>
 
+            {/* Tab 3: Insights */}
             <TouchableOpacity
-              onPress={() => setActiveTab('LEDGER')}
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('INSIGHTS')}
+              style={styles.tabItem}
+            >
+              <MinimalIcon
+                name="insights"
+                size={18}
+                color={activeTab === 'INSIGHTS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === 'INSIGHTS' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {isHi ? 'एनालिटिक्स' : 'Insights'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Tab 4: Udhaar */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('UDHAAR')}
               style={styles.tabItem}
             >
               <MinimalIcon
                 name="ledger"
                 size={18}
-                color={
-                  activeTab === 'LEDGER' ? palette.primaryBrown : '#94A3B8'
-                }
+                color={activeTab === 'UDHAAR' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
                 style={[
                   styles.tabLabel,
-                  {
-                    color:
-                      activeTab === 'LEDGER' ? palette.primaryBrown : '#64748B',
-                    fontWeight: activeTab === 'LEDGER' ? '600' : '500',
+                  activeTab === 'UDHAAR' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
                   },
                 ]}
               >
-                {isHi ? 'खाता' : 'Ledger'}
+                {isHi ? 'उधार खाता' : 'Udhaar'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Tab 5: Profile */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('PROFILE')}
+              style={styles.tabItem}
+            >
+              <MinimalIcon
+                name="profile"
+                size={18}
+                color={activeTab === 'PROFILE' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === 'PROFILE' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {isHi ? 'प्रोफ़ाइल' : 'Profile'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -526,95 +590,85 @@ const styles = StyleSheet.create({
   },
   floatingPill: {
     position: 'absolute',
-    bottom: 74,
+    bottom: 84,
     alignSelf: 'center',
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 20,
     backgroundColor: '#0F172A',
-    shadowColor: '#000000',
-    shadowOpacity: 0.18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    elevation: 8,
     zIndex: 999,
-    maxWidth: '90%',
   },
   pillListening: {
     backgroundColor: '#0F172A',
-    borderColor: '#DC2626',
-    borderWidth: 1,
   },
   pillSaving: {
-    backgroundColor: '#312E81',
+    backgroundColor: '#059669',
   },
   pillSuccess: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#86EFAC',
+    borderColor: '#A7F3D0',
   },
   pillError: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#FCA5A5',
+    borderColor: '#FECACA',
   },
   pillText: {
-    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 13,
+    fontWeight: '700',
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
+    fontFamily: SYSTEM_FONT_STACK,
   },
   pillTextSuccess: {
-    color: '#15803D',
-    fontWeight: '700',
+    color: '#065F46',
   },
   pillTextError: {
-    color: '#B91C1C',
-    fontWeight: '700',
+    color: '#991B1B',
+  },
+  floatingMicFab: {
+    position: 'absolute',
+    bottom: 74,
+    right: 20,
+    zIndex: 100,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  fabInnerCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   bottomBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
     height: 64,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 4,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
     paddingVertical: 6,
   },
   tabLabel: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 11,
-  },
-  voiceCenterSlot: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 2,
-  },
-  voiceCircleBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  voiceLabel: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 10,
     color: '#64748B',
+    marginTop: 3,
+    fontWeight: '500',
   },
 });

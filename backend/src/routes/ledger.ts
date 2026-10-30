@@ -213,11 +213,19 @@ router.get('/budgets', requireAuth, async (req: AuthenticatedRequest, res: Respo
       return;
     }
 
+    const [yearStr, monthStr] = monthYear.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString();
+    const endDate = new Date(Date.UTC(year, month, 1)).toISOString();
+
     const { data: expenseRows, error: eErr } = await req.db!
       .from('transactions')
       .select('category_id, amount_paise')
       .eq('workspace_id', workspaceId)
-      .eq('kind', 'EXPENSE');
+      .eq('kind', 'EXPENSE')
+      .gte('occurred_at', startDate)
+      .lt('occurred_at', endDate);
 
     if (eErr) {
       res.status(500).json({ error: eErr.message });
@@ -327,6 +335,263 @@ router.post(
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to create transaction';
       res.status(400).json({ error: message });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/transactions
+ * Fetches all transactions for the workspace with optional monthYear, category, and search filters.
+ */
+router.get(
+  '/transactions',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const workspaceId = await resolveWorkspaceId(req, 'PERSONAL');
+      const { monthYear, categoryName, search, limit = '200', offset = '0' } = req.query;
+
+      let query = req.db!
+        .from('transactions')
+        .select(
+          `
+          *,
+          categories ( id, name, icon_name, color_hex )
+        `
+        )
+        .eq('workspace_id', workspaceId)
+        .order('occurred_at', { ascending: false });
+
+      if (monthYear && typeof monthYear === 'string') {
+        const [yearStr, monthStr] = monthYear.split('-');
+        const year = parseInt(yearStr, 10);
+        const month = parseInt(monthStr, 10);
+        if (!isNaN(year) && !isNaN(month)) {
+          const startDate = new Date(Date.UTC(year, month - 1, 1)).toISOString();
+          const endDate = new Date(Date.UTC(year, month, 1)).toISOString();
+          query = query.gte('occurred_at', startDate).lt('occurred_at', endDate);
+        }
+      }
+
+      if (search && typeof search === 'string' && search.trim()) {
+        const term = `%${search.trim()}%`;
+        query = query.or(`merchant_or_payee.ilike.${term},description.ilike.${term}`);
+      }
+
+      const parsedLimit = Math.min(parseInt(limit as string, 10) || 200, 500);
+      const parsedOffset = parseInt(offset as string, 10) || 0;
+      query = query.range(parsedOffset, parsedOffset + parsedLimit - 1);
+
+      const { data: rows, error } = await query;
+      if (error) {
+        res.status(500).json({ error: error.message });
+        return;
+      }
+
+      let filteredRows = rows || [];
+      if (categoryName && typeof categoryName === 'string' && categoryName.trim()) {
+        filteredRows = filteredRows.filter((t: any) => {
+          const cat = Array.isArray(t.categories) ? t.categories[0] : t.categories;
+          return cat?.name?.toLowerCase() === categoryName.trim().toLowerCase();
+        });
+      }
+
+      const totalSpentPaise = filteredRows
+        .filter((t) => t.kind === 'EXPENSE')
+        .reduce((sum, t) => sum + Number(t.amount_paise), 0);
+
+      const totalIncomePaise = filteredRows
+        .filter((t) => t.kind === 'INCOME')
+        .reduce((sum, t) => sum + Number(t.amount_paise), 0);
+
+      const mapped = filteredRows.map((t: any) => {
+        const cat = Array.isArray(t.categories) ? t.categories[0] : t.categories;
+        const rawSource = String(t.source_type || '').toUpperCase();
+        const isImported =
+          ['NOTIFICATION', 'SMS', 'EMAIL', 'UPI_NOTIFICATION'].includes(rawSource) ||
+          Boolean(t.upi_reference_id);
+        const sourceType = isImported
+          ? rawSource || 'NOTIFICATION'
+          : rawSource || (t.source_draft_id ? 'VOICE' : 'MANUAL');
+
+        return {
+          id: t.id,
+          kind: t.kind,
+          amountPaise: Number(t.amount_paise),
+          paymentVia: t.payment_via,
+          sourceType,
+          isImported,
+          merchantOrPayee: t.merchant_or_payee || cat?.name || 'Transaction',
+          description: t.description || '',
+          categoryName: cat?.name || 'General',
+          categoryIcon: cat?.icon_name || 'receipt-outline',
+          occurredAt: t.occurred_at,
+        };
+      });
+
+      res.json({
+        workspaceId,
+        monthYear: monthYear || new Date().toISOString().slice(0, 7),
+        totalSpentPaise,
+        totalIncomePaise,
+        transactions: mapped,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load transactions';
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * DELETE /api/v1/transactions/:id
+ * Deletes any spending or income transaction and rolls back associated logs.
+ */
+router.delete(
+  '/transactions/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const workspaceId = await resolveWorkspaceId(req, 'PERSONAL');
+
+      const { data: existing, error: findErr } = await req.db!
+        .from('transactions')
+        .select('id, workspace_id, amount_paise, merchant_or_payee')
+        .eq('id', id)
+        .eq('workspace_id', workspaceId)
+        .single();
+
+      if (findErr || !existing) {
+        res.status(404).json({ error: 'Transaction not found in this workspace' });
+        return;
+      }
+
+      const { error: delErr } = await req.db!
+        .from('transactions')
+        .delete()
+        .eq('id', id);
+
+      if (delErr) {
+        res.status(500).json({ error: delErr.message });
+        return;
+      }
+
+      // Log deletion in audit_logs
+      await req.db!.from('audit_logs').insert({
+        workspace_id: workspaceId,
+        user_id: req.userId!,
+        entity_table: 'transactions',
+        entity_id: id,
+        action: 'TRANSACTION_DELETED',
+        metadata: {
+          deletedId: id,
+          amountPaise: existing.amount_paise,
+          merchantOrPayee: existing.merchant_or_payee,
+        },
+      });
+
+      res.json({ success: true, deletedId: id });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete transaction';
+      res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * PUT /api/v1/transactions/:id
+ * Updates an existing transaction (merchant, amount, category, note).
+ */
+router.put(
+  '/transactions/:id',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const workspaceId = await resolveWorkspaceId(req, 'PERSONAL');
+      const {
+        merchantOrPayee,
+        amountRupees,
+        categoryName,
+        description,
+        paymentVia,
+        occurredAt,
+      } = req.body;
+
+      const { data: existing, error: findErr } = await req.db!
+        .from('transactions')
+        .select('*')
+        .eq('id', id)
+        .eq('workspace_id', workspaceId)
+        .single();
+
+      if (findErr || !existing) {
+        res.status(404).json({ error: 'Transaction not found in this workspace' });
+        return;
+      }
+
+      const updates: Record<string, any> = {};
+
+      if (merchantOrPayee !== undefined) {
+        updates.merchant_or_payee = String(merchantOrPayee).trim();
+      }
+      if (amountRupees !== undefined && Number(amountRupees) > 0) {
+        updates.amount_paise = rupeesToPaise(amountRupees);
+      }
+      if (description !== undefined) {
+        updates.description = String(description).trim();
+      }
+      if (paymentVia !== undefined) {
+        updates.payment_via = paymentVia;
+      }
+      if (occurredAt !== undefined) {
+        updates.occurred_at = occurredAt;
+      }
+
+      if (categoryName) {
+        const { data: cat } = await req.db!
+          .from('categories')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .eq('name', categoryName)
+          .maybeSingle();
+
+        if (cat?.id) {
+          updates.category_id = cat.id;
+        } else {
+          const { data: newCat } = await req.db!
+            .from('categories')
+            .insert({
+              workspace_id: workspaceId,
+              user_id: req.userId!,
+              name: categoryName,
+              kind: existing.kind,
+            })
+            .select('id')
+            .single();
+          if (newCat?.id) {
+            updates.category_id = newCat.id;
+          }
+        }
+      }
+
+      const { data: updated, error: updateErr } = await req.db!
+        .from('transactions')
+        .update(updates)
+        .eq('id', id)
+        .select('*, categories ( id, name, icon_name, color_hex )')
+        .single();
+
+      if (updateErr) {
+        res.status(500).json({ error: updateErr.message });
+        return;
+      }
+
+      res.json({ success: true, transaction: updated });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update transaction';
+      res.status(500).json({ error: message });
     }
   }
 );

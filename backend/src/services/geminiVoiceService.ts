@@ -122,6 +122,149 @@ export function cleanAndSanitizeScript(
   return clean.trim();
 }
 
+export function parseHindiSpokenAmount(rawInput: string): number | null {
+  const lower = rawInput.toLowerCase();
+
+  // 1. Direct digits with 'k' notation (e.g. 1.5k -> 1500, 2k -> 2000)
+  const kMatch = lower.replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*k\b/i);
+  if (kMatch) {
+    return Math.round(Number(kMatch[1]) * 1000);
+  }
+
+  // 2. Direct digits
+  const digitMatch = lower.replace(/,/g, '').match(/(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
+  if (digitMatch && Number(digitMatch[1]) > 0) {
+    return Number(digitMatch[1]);
+  }
+
+  const HINDI_NUMBER_WORDS: Record<string, number> = {
+    ek: 1, 'एक': 1,
+    do: 2, 'दो': 2,
+    teen: 3, 'तीन': 3,
+    chaar: 4, char: 4, 'चार': 4,
+    paanch: 5, panch: 5, 'पांच': 5, 'पाँच': 5,
+    chhe: 6, che: 6, 'छह': 6, 'छे': 6,
+    saat: 7, 'सात': 7,
+    aath: 8, aat: 8, 'आठ': 8,
+    nau: 9, 'नौ': 9,
+    das: 10, 'दस': 10,
+    gyarah: 11, 'ग्यारह': 11,
+    barah: 12, 'बारह': 12,
+    terah: 13, 'तेरह': 13,
+    chaudah: 14, 'चौदह': 14,
+    pandrah: 15, 'पंद्रह': 15,
+    solah: 16, 'सोलह': 16,
+    satrah: 17, 'सत्रह': 17,
+    atharah: 18, 'अठारह': 18,
+    unnees: 19, 'उन्नीस': 19,
+    bees: 20, 'बीस': 20,
+    tees: 30, 'तीस': 30,
+    chaalees: 40, chalis: 40, 'चालीस': 40,
+    pachaas: 50, pachas: 50, 'पचास': 50,
+    saath: 60, sath: 60, 'साठ': 60,
+    sattar: 70, 'सत्तर': 70,
+    assi: 80, 'अस्सी': 80,
+    nabbe: 90, 'नब्बे': 90,
+  };
+
+  // 3. High-priority compound phrases like "साढ़े चार हजार" -> 4500, "साढ़े तीन हजार" -> 3500
+  const saadheHazarMatch = lower.match(
+    /(?:saadhe|sadhe|साढ़े)\s*(chaar|char|चार|teen|तीन|paanch|panch|पांच|पाँच|do|दो)\s*(?:hazaar|hazar|हज़ार|हजार)/
+  );
+  if (saadheHazarMatch) {
+    const base = HINDI_NUMBER_WORDS[saadheHazarMatch[1]] || 0;
+    if (base > 0) return (base + 0.5) * 1000;
+  }
+
+  // 4. "ढाई हजार" -> 2500, "डेढ़ हजार" -> 1500
+  if (/(?:dhai|dhhai|ढाई)\s*(?:hazaar|hazar|हज़ार|हजार)/.test(lower)) return 2500;
+  if (/(?:dedh|derh|डेढ़)\s*(?:hazaar|hazar|हज़ार|हजार)/.test(lower)) return 1500;
+
+  // 5. "साढ़े [संख्या] सौ" (e.g. साढ़े तीन सौ -> 350, साढ़े चार सौ -> 450)
+  const saadheSauMatch = lower.match(
+    /(?:saadhe|sadhe|साढ़े)\s*(chaar|char|चार|teen|तीन|paanch|panch|पांच|पाँच|do|दो)\s*(?:sau|सौ)/
+  );
+  if (saadheSauMatch) {
+    const base = HINDI_NUMBER_WORDS[saadheSauMatch[1]] || 0;
+    if (base > 0) return (base + 0.5) * 100;
+  }
+
+  // 6. "ढाई सौ" -> 250, "डेढ़ सौ" -> 150, "सवा सौ" -> 125
+  if (/(?:dhai|dhhai|ढाई)\s*(?:sau|सौ)/.test(lower)) return 250;
+  if (/(?:dedh|derh|डेढ़)\s*(?:sau|सौ)/.test(lower)) return 150;
+  if (/(?:sawa|सवा)\s*(?:sau|सौ)/.test(lower)) return 125;
+
+  // 7. Compound Thousands + Hundreds (e.g. "सात हजार पांच सौ" -> 7500, "दो हजार दो सौ" -> 2200)
+  const compMatch = lower.match(
+    /([A-Za-z\u0900-\u097F]+)\s*(?:hazaar|hazar|हज़ार|हजार)\s*([A-Za-z\u0900-\u097F]+)?\s*(?:sau|सौ)?/
+  );
+  if (compMatch) {
+    const thWord = compMatch[1];
+    const hWord = compMatch[2];
+    const thVal = HINDI_NUMBER_WORDS[thWord] || 0;
+    if (thVal > 0) {
+      let total = thVal * 1000;
+      if (hWord && HINDI_NUMBER_WORDS[hWord]) {
+        total += HINDI_NUMBER_WORDS[hWord] * 100;
+      }
+      return total;
+    }
+  }
+
+  // 8. Multi-hundreds like "बारह सौ" -> 1200, "बाईस सौ" -> 2200, "पंद्रह सौ" -> 1500, "आठ सौ" -> 800
+  const sauMatch = lower.match(/([A-Za-z\u0900-\u097F]+)\s*(?:sau|सौ)/);
+  if (sauMatch) {
+    const multWord = sauMatch[1];
+    const specialSau: Record<string, number> = {
+      baees: 2200, 'बाईस': 2200, bais: 2200,
+      ikkees: 2100, 'इक्कीस': 2100,
+      unnees: 1900, 'उन्नीस': 1900,
+      atharah: 1800, 'अठारह': 1800,
+      satrah: 1700, 'सत्रह': 1700,
+      solah: 1600, 'सोलह': 1600,
+      pandrah: 1500, 'पंद्रह': 1500,
+      chaudah: 1400, 'चौदह': 1400,
+      terah: 1300, 'तेरह': 1300,
+      barah: 1200, 'बारह': 1200,
+      gyarah: 1100, 'ग्यारह': 1100,
+      das: 1000, 'दस': 1000,
+      nau: 900, 'नौ': 900,
+      aath: 800, aat: 800, 'आठ': 800,
+      saat: 700, 'सात': 700,
+      chhe: 600, che: 600, 'छह': 600, 'छे': 600,
+      paanch: 500, panch: 500, 'पांच': 500, 'पाँच': 500,
+      chaar: 400, char: 400, 'चार': 400,
+      teen: 300, 'तीन': 300,
+      do: 200, 'दो': 200,
+      ek: 100, 'एक': 100,
+    };
+    if (specialSau[multWord]) {
+      return specialSau[multWord];
+    }
+    const val = HINDI_NUMBER_WORDS[multWord];
+    if (val) {
+      return val * 100;
+    }
+  }
+
+  // 9. Thousands like "दो हजार", "दस हजार", "पांच हजार"
+  const hazarMatch = lower.match(/([A-Za-z\u0900-\u097F]+)\s*(?:hazaar|hazar|हज़ार|हजार)/);
+  if (hazarMatch) {
+    const val = HINDI_NUMBER_WORDS[hazarMatch[1]];
+    if (val) return val * 1000;
+  }
+
+  // 10. Standalone number words (e.g. "पचास", "तीस", "बीस", "दस")
+  for (const [w, val] of Object.entries(HINDI_NUMBER_WORDS)) {
+    const regex = new RegExp(`\\b${w}\\b`, 'i');
+    if (regex.test(lower)) {
+      return val;
+    }
+  }
+
+  return null;
+}
+
 export function normalizeDevanagariDigits(input: string): string {
   const devanagariDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
   let res = input;
@@ -146,43 +289,8 @@ export function parseHinglishFallback(
   const text = normalized;
   const lower = text.toLowerCase();
 
-  // 1. Extract amount
-  let extractedRupees: number | null = null;
-  const cleanedForNum = lower.replace(/,/g, '');
-
-  const kMatch = cleanedForNum.match(/(\d+(?:\.\d+)?)\s*k\b/i);
-  if (kMatch) {
-    extractedRupees = Math.round(Number(kMatch[1]) * 1000);
-  } else {
-    const numMatch = cleanedForNum.match(/(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
-    if (numMatch) {
-      extractedRupees = Number(numMatch[1]);
-    } else {
-      const wordMap: Array<[RegExp, number]> = [
-        [/\b(?:do|2)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 2000],
-        [/\b(?:panch|paanch|5)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 5000],
-        [/\b(?:das|10)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 10000],
-        [/\b(?:ek|1)\s*(?:hazaar|hazar|हज़ार|हजार)\b|\b(?:hazaar|hazar|हज़ार|हजार)\b/, 1000],
-        [/\b(?:panch|paanch|5)\s*(?:sau|सौ)\b/, 500],
-        [/\b(?:chaar|4)\s*(?:sau|सौ)\b/, 400],
-        [/\b(?:teen|3)\s*(?:sau|सौ)\b/, 300],
-        [/\b(?:do|2)\s*(?:sau|सौ)\b/, 200],
-        [/\b(?:dhai|dhhai)\s*(?:sau|सौ)\b/, 250],
-        [/\b(?:dedh|derh)\s*(?:sau|सौ)\b/, 150],
-        [/\b(?:sau|सौ)\b|\b(?:ek|1)\s*(?:sau|सौ)\b/, 100],
-        [/\b(?:pachaas|pachas|पचास)\b/, 50],
-        [/\b(?:tees|तीस)\b/, 30],
-        [/\b(?:bees|बीस)\b/, 20],
-        [/\b(?:das|दस)\b/, 10],
-      ];
-      for (const [regex, val] of wordMap) {
-        if (regex.test(lower)) {
-          extractedRupees = val;
-          break;
-        }
-      }
-    }
-  }
+  // 1. Extract amount using robust multi-script Hindi/English parser
+  const extractedRupees: number | null = parseHindiSpokenAmount(lower);
 
   // 2. Detect Intent
   let intent: GeminiExtractedDraft['intent'] = 'EXPENSE';

@@ -7,6 +7,7 @@ import { apiFetch } from '../services/api';
 import {
   WorkspaceDto,
   DashboardSummaryResponse,
+  TransactionsListResponse,
   BudgetsResponse,
   UdhaarLedgerResponse,
   ContactDetailResponse,
@@ -487,4 +488,87 @@ export function useIngestUpiNotification(workspaceId: string | null) {
     },
   });
 }
+
+/**
+ * Fetches all transactions for the workspace with optional monthYear, categoryName, and search query.
+ */
+export function useTransactions(
+  workspaceId: string | null,
+  filters?: {
+    monthYear?: string;
+    categoryName?: string;
+    search?: string;
+  }
+) {
+  const queryParams = new URLSearchParams();
+  if (filters?.monthYear) queryParams.append('monthYear', filters.monthYear);
+  if (filters?.categoryName) queryParams.append('categoryName', filters.categoryName);
+  if (filters?.search) queryParams.append('search', filters.search);
+
+  const qs = queryParams.toString();
+  const endpoint = `/transactions${qs ? `?${qs}` : ''}`;
+
+  return useQuery({
+    queryKey: ['transactions', workspaceId, filters?.monthYear, filters?.categoryName, filters?.search],
+    queryFn: () =>
+      apiFetch<TransactionsListResponse>(endpoint, {
+        workspaceId,
+      }),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/**
+ * Mutation: Delete a transaction by ID.
+ */
+export function useDeleteTransaction(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (transactionId: string) =>
+      apiFetch<{ success: boolean; deletedId: string }>(`/transactions/${transactionId}`, {
+        method: 'DELETE',
+        workspaceId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+    },
+  });
+}
+
+/**
+ * Mutation: Update a transaction (merchant, amount, category, note).
+ */
+export function useUpdateTransaction(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      transactionId: string;
+      merchantOrPayee?: string;
+      amountRupees?: number;
+      categoryName?: string;
+      description?: string;
+    }) =>
+      apiFetch<{ success: boolean; transaction: any }>(`/transactions/${payload.transactionId}`, {
+        method: 'PUT',
+        workspaceId,
+        body: {
+          merchantOrPayee: payload.merchantOrPayee,
+          amountRupees: payload.amountRupees,
+          categoryName: payload.categoryName,
+          description: payload.description,
+        },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+    },
+  });
+}
+
+
 

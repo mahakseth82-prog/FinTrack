@@ -63,11 +63,11 @@ export async function transcribeAudioWithGroqWhisper(
 
     const fileStream = fs.createReadStream(tempFilePath);
 
-    // Prompt priming Whisper in the correct script to prevent Arabic/Urdu leakage
+    // Prompt priming Whisper in the correct script with numbers to guarantee digit transcription
     const prompt =
       preferredLanguage === 'hi'
-        ? 'पेट्रोल, खाना, कपड़े, दूध, राशन, डीमार्ट, चाय, किराना, उधार, रुपये, नकद, यूपीआई'
-        : 'Petrol, Clothes, Food, Milk, Groceries, DMart, Swiggy, Zomato, Chai, Kirana, Udhaar, Rupees, ₹, UPI, Cash, GPay, PhonePe';
+        ? 'पेट्रोल, खाना, कपड़े, दूध, राशन, डीमार्ट, चाय, किराना, उधार, रुपये, ₹, नकद, यूपीआई, 100, 200, 300, 400, 500, 800, 1000, 1200, 1500, 2000, 2200, 4500, 5000, 7500'
+        : 'Petrol, Clothes, Food, Milk, Groceries, DMart, Swiggy, Zomato, Chai, Kirana, Udhaar, Rupees, ₹, UPI, Cash, GPay, PhonePe, 100, 200, 300, 500, 800, 1000, 1200, 1500, 2000, 2200, 4500, 5000';
 
     const transcription = await groq.audio.transcriptions.create({
       file: fileStream,
@@ -132,9 +132,22 @@ The user's preferred language is: ${preferredLanguage} ('en' or 'hi').
 
 CRITICAL RULES:
 1. BAN URDU SCRIPT: Output text strictly using English (Latin alphabet) or Hindi (Devanagari alphabet). NEVER use Urdu script (Perso-Arabic alphabet) under any circumstance.
-2. PRESERVE SPECIFIC SPOKEN ITEM: Extract the specific product, service, item, or person spoken by the user for 'normalized_title'.
+2. HINDI NUMBER FETCHING: Accurately parse Hindi and English number words into numeric 'amountRupees':
+   - "बारह सौ" -> 1200
+   - "बाईस सौ" -> 2200
+   - "साढ़े चार हजार" -> 4500
+   - "सात हजार पांच सौ" -> 7500
+   - "पंद्रह सौ" -> 1500
+   - "आठ सौ" -> 800
+   - "डेढ़ सौ" -> 150
+   - "ढाई सौ" -> 250
+   - "सवा सौ" -> 125
+   - "चार सौ" -> 400
+   - "दो हजार" -> 2000
+   - "पांच हजार" -> 5000
+3. PRESERVE SPECIFIC SPOKEN ITEM: Extract the specific product, service, item, or person spoken by the user for 'normalized_title'.
    Never use generic placeholders like 'Entry', 'Transaction', or 'Expense' when a specific noun (e.g., kapde, khana, petrol, doodh, samaan, ticket, recharge) is mentioned.
-3. TITLE GENERATION:
+4. TITLE GENERATION:
    - If preferredLanguage === 'en':
      - "Kapde kharide 1200 ke" -> normalized_title: "Clothes Purchase"
      - "Khana khaya 350 rupaye" -> normalized_title: "Food / Dinner"
@@ -151,7 +164,7 @@ CRITICAL RULES:
      - "Ravi ko udhaar diya 2000" -> normalized_title: "उधार दिया - रवि", merchantOrPerson: "रवि"
      - "Client se payment aayi 5000" -> normalized_title: "ग्राहक से भुगतान"
      - "Kabir ko 4500 udhaar diye" -> normalized_title: "उधार दिया - कबीर", merchantOrPerson: "कबीर"
-4. Fall back to category names (e.g., "Dining", "Groceries") only if the user did NOT mention any item or person (e.g., user only said "300 rupaye kharch kiye").
+5. Fall back to category names (e.g., "Dining", "Groceries") only if the user did NOT mention any item or person (e.g., user only said "300 rupaye kharch kiye").
 
 Output strictly JSON:
 {
