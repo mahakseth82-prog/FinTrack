@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "dev": "expo start -c",
-    "start": "expo start -c",
+    "dev": "node start-expo.js -c",
+    "start": "node start-expo.js -c",
     "tunnel": "expo start --tunnel -c",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web",
+    "android": "node start-expo.js --android",
+    "ios": "node start-expo.js --ios",
+    "web": "node start-expo.js --web",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

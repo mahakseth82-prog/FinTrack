@@ -8,7 +8,6 @@ import {
   Modal,
   StyleSheet,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK } from '../theme/colors';
 import { MinimalIcon } from '../components/MinimalIcon';
@@ -245,6 +244,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const handleScanBill = async () => {
     setScanStatusMsg(null);
     try {
+      const ImagePicker = await import('expo-image-picker');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         base64: true,

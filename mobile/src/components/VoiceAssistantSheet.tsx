@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Platform,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useParseVoiceDraft,
@@ -66,9 +65,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   const [utteranceInput, setUtteranceInput] = useState('');
   const [clarificationInput, setClarificationInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [recordingObj, setRecordingObj] = useState<Audio.Recording | null>(
-    null
-  );
+  const [recordingObj, setRecordingObj] = useState<any>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [savedBanner, setSavedBanner] = useState<string | null>(null);
 
@@ -254,6 +251,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
 
     // 2. Native Mobile (Expo Go) or Non-Chromium Browser Audio Recording
     try {
+      const { Audio } = await import('expo-av');
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) {
         setErrorText(

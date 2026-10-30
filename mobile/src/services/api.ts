@@ -8,21 +8,27 @@ import { supabase } from './supabase';
  */
 function resolveBackendBaseUrl(): string {
   const configuredUrl = (
-    process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:5000/api/v1'
+    process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.42:5000/api/v1'
   ).replace(/\/$/, '');
 
-  if (
-    configuredUrl.includes('localhost') ||
-    configuredUrl.includes('127.0.0.1')
-  ) {
-    const scriptURL: string | undefined = NativeModules?.SourceCode?.scriptURL;
-    if (scriptURL) {
-      const match = scriptURL.match(/https?:\/\/(\d+\.\d+\.\d+\.\d+):\d+/);
-      if (match && match[1]) {
-        return configuredUrl
-          .replace('localhost', match[1])
-          .replace('127.0.0.1', match[1]);
-      }
+  // 1. Check browser window.location.hostname (Web on laptop or phone browser)
+  const webHost: string | undefined = (globalThis as any)?.location?.hostname;
+  if (webHost) {
+    return configuredUrl.replace(
+      /https?:\/\/[^/:]+(:\d+)/,
+      `http://${webHost}$1`
+    );
+  }
+
+  // 2. Check React Native bundle scriptURL (when running inside Expo Go over LAN)
+  const scriptURL: string | undefined = NativeModules?.SourceCode?.scriptURL;
+  if (scriptURL) {
+    const match = scriptURL.match(/https?:\/\/(\d+\.\d+\.\d+\.\d+):\d+/);
+    if (match && match[1]) {
+      return configuredUrl.replace(
+        /https?:\/\/[^/:]+(:\d+)/,
+        `http://${match[1]}$1`
+      );
     }
   }
 
