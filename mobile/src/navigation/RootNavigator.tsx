@@ -416,7 +416,7 @@ export const RootNavigator: React.FC = () => {
           </TouchableOpacity>
         )}
 
-        {/* Bottom Navigation Bar: 5 Core Tabs [ Home | Transactions | Insights | Udhaar | Profile ] */}
+        {/* Bottom Navigation Bar: Clean 3-Tab Layout [ Home | Transactions | Profile ] */}
         {!selectedContactId && (
           <View style={styles.bottomBar}>
             {/* Tab 1: Home */}
@@ -427,7 +427,7 @@ export const RootNavigator: React.FC = () => {
             >
               <Ionicons
                 name={activeTab === 'HOME' ? 'home' : 'home-outline'}
-                size={20}
+                size={22}
                 color={activeTab === 'HOME' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -451,7 +451,7 @@ export const RootNavigator: React.FC = () => {
             >
               <Ionicons
                 name={activeTab === 'TRANSACTIONS' ? 'receipt' : 'receipt-outline'}
-                size={20}
+                size={22}
                 color={activeTab === 'TRANSACTIONS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -467,55 +467,7 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Tab 3: Insights */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setActiveTab('INSIGHTS')}
-              style={styles.tabItem}
-            >
-              <Ionicons
-                name={activeTab === 'INSIGHTS' ? 'bar-chart' : 'bar-chart-outline'}
-                size={20}
-                color={activeTab === 'INSIGHTS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
-              />
-              <Text
-                style={[
-                  styles.tabLabel,
-                  activeTab === 'INSIGHTS' && {
-                    color: EMERALD_THEME.emeraldGreen,
-                    fontWeight: '700',
-                  },
-                ]}
-              >
-                {isHi ? 'एनालिटिक्स' : 'Insights'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Tab 4: Udhaar */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => setActiveTab('UDHAAR')}
-              style={styles.tabItem}
-            >
-              <Ionicons
-                name={activeTab === 'UDHAAR' ? 'book' : 'book-outline'}
-                size={20}
-                color={activeTab === 'UDHAAR' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
-              />
-              <Text
-                style={[
-                  styles.tabLabel,
-                  activeTab === 'UDHAAR' && {
-                    color: EMERALD_THEME.emeraldGreen,
-                    fontWeight: '700',
-                  },
-                ]}
-              >
-                {isHi ? 'उधार खाता' : 'Udhaar'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Tab 5: Profile */}
+            {/* Tab 3: Profile */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setActiveTab('PROFILE')}
@@ -523,7 +475,7 @@ export const RootNavigator: React.FC = () => {
             >
               <Ionicons
                 name={activeTab === 'PROFILE' ? 'person' : 'person-outline'}
-                size={20}
+                size={22}
                 color={activeTab === 'PROFILE' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text

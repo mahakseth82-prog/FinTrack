@@ -62,30 +62,19 @@ export const HeaderModeSwitcher: React.FC = () => {
 
   return (
     <View style={styles.headerContainer}>
-      {/* Left: Paytm-style Profile Avatar Circle + User First Name + "+ Add Entry" */}
-      <View style={styles.profileLeftBlock}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleSettingsPress}
-          style={styles.avatarRow}
-        >
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarInitials}>{userInitials}</Text>
-          </View>
-          <Text style={styles.userNameText} numberOfLines={1}>
-            {formattedUserName}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => setIsManualModalOpen(true)}
-          style={styles.addEntryBtn}
-        >
-          <Ionicons name="add" size={13} color="#475569" />
-          <Text style={styles.addEntryText}>Entry</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Left: Paytm-style Profile Avatar Circle + User First Name */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={handleSettingsPress}
+        style={styles.profileLeftBlock}
+      >
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitials}>{userInitials}</Text>
+        </View>
+        <Text style={styles.userNameText} numberOfLines={1}>
+          {formattedUserName}
+        </Text>
+      </TouchableOpacity>
 
       {/* Center: Brand Name + Compact [ Personal | Business ] Segmented Pill */}
       <View style={styles.centerPillContainer}>
@@ -128,14 +117,15 @@ export const HeaderModeSwitcher: React.FC = () => {
         </View>
       </View>
 
-      {/* Right: Clean Text Button "Language" + Bell / Settings Icon */}
+      {/* Right: Solid "+ Add Spend" Button + Bell Icon */}
       <View style={styles.rightActionsRow}>
         <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => setIsLangModalOpen(true)}
-          style={styles.langBtn}
+          activeOpacity={0.85}
+          onPress={() => setIsManualModalOpen(true)}
+          style={styles.addSpendBtn}
         >
-          <Text style={styles.langBtnText}>Language</Text>
+          <Ionicons name="add" size={16} color="#FFFFFF" />
+          <Text style={styles.addSpendBtnText}>Add Spend</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -143,7 +133,7 @@ export const HeaderModeSwitcher: React.FC = () => {
           onPress={handleSettingsPress}
           style={styles.bellIconBtn}
         >
-          <Ionicons name="notifications-outline" size={20} color="#0F172A" />
+          <Ionicons name="notifications-outline" size={19} color="#0F172A" />
         </TouchableOpacity>
       </View>
 
@@ -177,29 +167,7 @@ const styles = StyleSheet.create({
   profileLeftBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    flex: 1.1,
-  },
-  avatarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  addEntryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    backgroundColor: '#F8FAFC',
-  },
-  addEntryText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#475569',
+    gap: 8,
   },
   avatarCircle: {
     width: 36,
@@ -216,9 +184,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#BE185D',
     fontFamily: SYSTEM_FONT_STACK,
-  },
-  profileNameBox: {
-    justifyContent: 'center',
   },
   userNameText: {
     fontSize: 13,
@@ -260,20 +225,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 8,
-    flex: 1,
   },
-  langBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+  addSpendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  langBtnText: {
+  addSpendBtnText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: SYSTEM_FONT_STACK,
   },
   bellIconBtn: {
     width: 32,

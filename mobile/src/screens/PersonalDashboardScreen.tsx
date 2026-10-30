@@ -34,8 +34,6 @@ interface PersonalDashboardProps {
   isRecordingVoice?: boolean;
 }
 
-type SubNavTab = 'TRANSACTIONS' | 'INSIGHTS' | 'BUDGETS' | 'REPORTS';
-
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -103,9 +101,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   isRecordingVoice = false,
 }) => {
   const { activeWorkspaceId } = useFinTrackTheme();
-
-  // Sub-nav tab state: Transactions | Insights | Budgets | Reports
-  const [activeSubTab, setActiveSubTab] = useState<SubNavTab>('TRANSACTIONS');
 
   // Month navigation
   const now = new Date();
@@ -321,15 +316,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     }
   };
 
-  const handleSubTabSelect = (tab: SubNavTab) => {
-    setActiveSubTab(tab);
-    if (tab === 'INSIGHTS') {
-      onNavigateToTab?.('INSIGHTS');
-    } else if (tab === 'TRANSACTIONS') {
-      onNavigateToTab?.('TRANSACTIONS');
-    }
-  };
-
   return (
     <View style={styles.screenWrapper}>
       <ScrollView
@@ -337,7 +323,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* 1. Compact Search Bar */}
+        {/* Compact Search Bar */}
         <View style={styles.searchBarBox}>
           <Ionicons name="search-outline" size={17} color="#94A3B8" />
           <TextInput
@@ -354,43 +340,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           )}
         </View>
 
-        {/* 2. Clean, Uncolored Sub-Nav Tab Strip (Paytm-style clean tabs) */}
-        <View style={styles.subNavStrip}>
-          {(['TRANSACTIONS', 'INSIGHTS', 'BUDGETS', 'REPORTS'] as SubNavTab[]).map(
-            (tab) => {
-              const isSelected = activeSubTab === tab;
-              const label =
-                tab === 'TRANSACTIONS'
-                  ? 'Transactions'
-                  : tab === 'INSIGHTS'
-                  ? 'Insights'
-                  : tab === 'BUDGETS'
-                  ? 'Budgets'
-                  : 'Reports';
-
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  activeOpacity={0.7}
-                  onPress={() => handleSubTabSelect(tab)}
-                  style={[styles.subNavItem, isSelected && styles.subNavItemActive]}
-                >
-                  <Text
-                    style={[
-                      styles.subNavText,
-                      isSelected && styles.subNavTextActive,
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                  {isSelected && <View style={styles.subNavIndicator} />}
-                </TouchableOpacity>
-              );
-            }
-          )}
-        </View>
-
-        {/* 3. Monthly Spending Summary Card */}
+        {/* Monthly Spending Summary Card - Directly below search bar */}
         <View style={styles.heroBudgetCard}>
           {/* Card Header with Month Navigation */}
           <View style={styles.cardHeaderRow}>
@@ -620,7 +570,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         />
       </ScrollView>
 
-      {/* 5. Bottom Large Pill Buttons (Pinned for Easy Thumb Reach) */}
+      {/* 5. Bottom Large Pill Buttons (Pinned for Easy Thumb Reach above bottom tab bar) */}
       <View style={styles.bottomPillRow}>
         {/* Left Side: Scan Bill (Paytm Deep Royal Blue #002970) */}
         <TouchableOpacity
@@ -633,7 +583,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <>
-              <Ionicons name="scan-outline" size={19} color="#FFFFFF" />
+              <Ionicons name="scan-outline" size={21} color="#FFFFFF" />
               <Text style={styles.scanBillPillText}>Scan Bill</Text>
             </>
           )}
@@ -650,7 +600,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         >
           <Ionicons
             name={isRecordingVoice ? 'radio-button-on' : 'mic'}
-            size={19}
+            size={21}
             color="#FFFFFF"
           />
           <Text style={styles.voicePillText}>
@@ -678,7 +628,7 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 95, // Space to scroll cleanly behind floating bottom pills
+    paddingBottom: 130, // Space to scroll cleanly behind floating bottom pills
   },
   searchBarBox: {
     flexDirection: 'row',
@@ -697,41 +647,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0F172A',
     padding: 0,
-  },
-  subNavStrip: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    marginBottom: 12,
-    paddingTop: 2,
-  },
-  subNavItem: {
-    paddingVertical: 9,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-    position: 'relative',
-  },
-  subNavItemActive: {},
-  subNavText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#64748B',
-  },
-  subNavTextActive: {
-    color: '#0F172A',
-    fontWeight: '700',
-  },
-  subNavIndicator: {
-    position: 'absolute',
-    bottom: -1,
-    left: 6,
-    right: 6,
-    height: 2.5,
-    backgroundColor: '#0F172A',
-    borderRadius: 1.5,
   },
   heroBudgetCard: {
     backgroundColor: '#FFFFFF',
@@ -954,19 +869,19 @@ const styles = StyleSheet.create({
   },
   bottomPillRow: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 16,
     left: 16,
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
     zIndex: 99,
   },
   scanBillPill: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#002970', // Paytm Deep Royal Blue
     flexDirection: 'row',
     alignItems: 'center',
@@ -979,15 +894,15 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   scanBillPillText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.2,
   },
   voicePill: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#059669', // Vibrant Emerald Green
     flexDirection: 'row',
     alignItems: 'center',
@@ -1003,8 +918,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#DC2626',
   },
   voicePillText: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.2,
   },
