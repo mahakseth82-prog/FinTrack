@@ -214,9 +214,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       .slice(0, 5);
   }, [allTransactions]);
 
-  const receivablePaise = summaryQuery.data?.totalReceivablePaise || 0;
-  const payablePaise = summaryQuery.data?.totalPayablePaise || 0;
-
   const handleScanBill = async () => {
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -267,7 +264,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* SECTION 1: Total Spending & Remaining Budget */}
+      {/* Overview Header Row */}
       <View style={styles.sectionHeaderRow}>
         <View>
           <Text style={styles.sectionOverline}>Personal Finance Overview</Text>
@@ -290,6 +287,37 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             <Ionicons name="chevron-forward" size={16} color="#0F172A" />
           </TouchableOpacity>
         </View>
+      </View>
+
+      {/* Reordered: Action Buttons (Scan Bill & Manual Add) ABOVE Overview Card */}
+      <View style={styles.actionRowContainer}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleScanBill}
+          disabled={isScanningBill}
+          style={styles.actionBtnOutline}
+        >
+          {isScanningBill ? (
+            <ActivityIndicator size="small" color="#059669" />
+          ) : (
+            <>
+              <Ionicons name="camera-outline" size={18} color="#059669" />
+              <Text style={styles.actionBtnTextGreen}>Scan Bill</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            setPrefillValues(undefined);
+            setIsManualModalOpen(true);
+          }}
+          style={styles.actionBtnPrimary}
+        >
+          <Ionicons name="add" size={19} color="#FFFFFF" />
+          <Text style={styles.actionBtnTextWhite}>Manual Add</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Hero Spending Card */}
@@ -376,72 +404,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         </View>
       </View>
 
-      {/* Multi-Modal Action Row: [ 📷 Scan Bill ] & [ ＋ Manual Add ] */}
-      <View style={styles.actionRowContainer}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleScanBill}
-          disabled={isScanningBill}
-          style={styles.actionBtnOutline}
-        >
-          {isScanningBill ? (
-            <ActivityIndicator size="small" color="#059669" />
-          ) : (
-            <>
-              <Ionicons name="camera-outline" size={18} color="#059669" />
-              <Text style={styles.actionBtnTextGreen}>Scan Bill</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => {
-            setPrefillValues(undefined);
-            setIsManualModalOpen(true);
-          }}
-          style={styles.actionBtnPrimary}
-        >
-          <Ionicons name="add" size={19} color="#FFFFFF" />
-          <Text style={styles.actionBtnTextWhite}>Manual Add</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Personal Udhaar Summary Card */}
-      <View style={styles.udhaarCard}>
-        <View style={styles.udhaarHeaderRow}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Ionicons name="book-outline" size={17} color="#0F172A" />
-            <Text style={styles.udhaarCardTitle}>Digital Udhaar Ledger</Text>
-          </View>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => onNavigateToTab?.('UDHAAR')}
-            style={styles.viewUdhaarLink}
-          >
-            <Text style={styles.viewUdhaarLinkText}>Open Ledger</Text>
-            <Ionicons name="chevron-forward" size={13} color="#059669" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.udhaarStatsGrid}>
-          <View style={[styles.udhaarStatBox, { backgroundColor: '#ECFDF5' }]}>
-            <Text style={styles.udhaarBoxLabel}>You Will Get</Text>
-            <Text style={[styles.udhaarBoxValue, { color: '#059669' }]}>
-              +{formatINR(receivablePaise)}
-            </Text>
-          </View>
-
-          <View style={[styles.udhaarStatBox, { backgroundColor: '#F8FAFC' }]}>
-            <Text style={styles.udhaarBoxLabel}>You Owe (Payable)</Text>
-            <Text style={[styles.udhaarBoxValue, { color: '#64748B' }]}>
-              {payablePaise > 0 ? `-${formatINR(payablePaise)}` : '₹0'}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Recent Spends List (Latest 5 Transactions) */}
+      {/* Recent Spends List (Latest 5 Transactions) - Sits directly below Total Spending Card */}
       <View style={styles.recentSectionCard}>
         <View style={styles.recentHeaderRow}>
           <View>
@@ -553,11 +516,13 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    width: '100%',
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
+    width: '100%',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 110,
   },
   sectionHeaderRow: {
@@ -718,54 +683,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
-  },
-  udhaarCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  udhaarHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  udhaarCardTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  viewUdhaarLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  viewUdhaarLinkText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#059669',
-  },
-  udhaarStatsGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  udhaarStatBox: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 12,
-  },
-  udhaarBoxLabel: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  udhaarBoxValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: 4,
   },
   recentSectionCard: {
     backgroundColor: '#FFFFFF',

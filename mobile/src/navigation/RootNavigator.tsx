@@ -573,17 +573,12 @@ export const RootNavigator: React.FC = () => {
 const styles = StyleSheet.create({
   outerViewport: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
-    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
   mobileFrame: {
     flex: 1,
     width: '100%',
-    maxWidth: 440,
     backgroundColor: '#FFFFFF',
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#E2E8F0',
   },
   body: {
     flex: 1,

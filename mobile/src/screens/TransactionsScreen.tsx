@@ -476,9 +476,10 @@ export const TransactionsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    width: '100%',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
   },
   monthHeaderRow: {
     flexDirection: 'row',

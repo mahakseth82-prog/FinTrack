@@ -50,7 +50,7 @@ export const HeaderModeSwitcher: React.FC = () => {
             style={styles.langPill}
           >
             <Text style={styles.langPillText}>
-              {user?.preferredLanguage === 'hi' ? '🌐 हिन्दी' : '🌐 English'}
+              {user?.preferredLanguage === 'hi' ? 'Language: HI' : 'Language: EN'}
             </Text>
           </TouchableOpacity>
 
@@ -150,34 +150,34 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   subtitle: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '500',
-    marginTop: 1,
+    fontSize: 14,
+    color: '#334155',
+    fontWeight: '600',
+    marginTop: 2,
   },
   langPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   langPillText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
     color: '#334155',
   },
   switchUserControl: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 8,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   switchUserText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#475569',
   },
