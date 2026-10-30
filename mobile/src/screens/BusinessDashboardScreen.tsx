@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,18 @@ import {
   TextInput,
   Modal,
   StyleSheet,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
-import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 import {
   useUdhaarLedger,
   useCreateObligation,
   useDueReminders,
+  useScanBillOcr,
 } from '../hooks/useFinTrackQueries';
 import {
   UdhaarLedgerItemDto,
@@ -30,11 +35,14 @@ import {
   PoliteReminderModal,
   ReminderTargetInfo,
 } from '../components/PoliteReminderModal';
+import { ManualTransactionModal } from '../components/ManualTransactionModal';
 
-type FilterChip = 'ALL' | 'OVERDUE' | 'DUE_TODAY' | 'CUSTOMERS' | 'SUPPLIERS';
+type LedgerSubFilter = 'ALL' | 'OVERDUE' | 'DUE_TODAY';
 
 interface BusinessDashboardProps {
   onOpenContactDetail: (contactId: string) => void;
+  onTriggerVoice?: () => void;
+  isRecordingVoice?: boolean;
 }
 
 export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
@@ -45,8 +53,26 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
   const ledgerQuery = useUdhaarLedger(activeWorkspaceId);
   const dueRemindersQuery = useDueReminders(activeWorkspaceId);
   const createObligationMutation = useCreateObligation(activeWorkspaceId);
+  const scanBillMutation = useScanBillOcr(activeWorkspaceId);
 
-  const [activeFilter, setActiveFilter] = useState<FilterChip>('ALL');
+  // Search & Active Ledger Type (Strictly Separates Receivables vs Payables)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeLedgerType, setActiveLedgerType] =
+    useState<'RECEIVABLE' | 'PAYABLE'>('RECEIVABLE');
+  const [activeSubFilter, setActiveSubFilter] =
+    useState<LedgerSubFilter>('ALL');
+
+  // Scanner & Manual Add State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isScanningBill, setIsScanningBill] = useState(false);
+  const [prefillValues, setPrefillValues] = useState<{
+    amountRupees?: number;
+    merchantOrPayee?: string;
+    categoryName?: string;
+    kind?: 'EXPENSE' | 'INCOME';
+  } | undefined>(undefined);
+
+  // New Credit Account Modal State
   const [showNewUdhaarModal, setShowNewUdhaarModal] = useState(false);
   const [reminderTarget, setReminderTarget] =
     useState<ReminderTargetInfo | null>(null);
@@ -59,39 +85,67 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
   );
   const [note, setNote] = useState('');
 
-  if (ledgerQuery.isLoading) {
-    return (
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SkeletonLoader count={4} height={80} />
-      </ScrollView>
-    );
-  }
-
-  if (ledgerQuery.isError) {
-    const errMsg =
-      ledgerQuery.error instanceof Error
-        ? ledgerQuery.error.message
-        : 'Unable to load credit & receivables ledger.';
-    return (
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <ErrorRetryCard
-          errorMessage={errMsg}
-          onRetry={() => ledgerQuery.refetch()}
-        />
-      </ScrollView>
-    );
-  }
-
+  const allContacts = ledgerQuery.data?.items || [];
   const summary = ledgerQuery.data?.summary;
-  const businessContacts = ledgerQuery.data?.items || [];
 
-  const filteredContacts = businessContacts.filter((c) => {
-    if (activeFilter === 'OVERDUE') return c.dueTag === 'OVERDUE';
-    if (activeFilter === 'DUE_TODAY') return c.dueTag === 'DUE_TODAY';
-    if (activeFilter === 'CUSTOMERS') return c.kind === 'CUSTOMER';
-    if (activeFilter === 'SUPPLIERS') return c.kind === 'SUPPLIER';
-    return true;
-  });
+  // Separate Receivables (Customers) and Payables (Suppliers)
+  const rawReceivables = useMemo(
+    () => allContacts.filter((c) => c.direction === 'RECEIVABLE'),
+    [allContacts]
+  );
+
+  const rawPayables = useMemo(
+    () => allContacts.filter((c) => c.direction === 'PAYABLE'),
+    [allContacts]
+  );
+
+  // Filtered Receivables
+  const filteredReceivables = useMemo(() => {
+    let list = rawReceivables;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (c) =>
+          c.displayName.toLowerCase().includes(q) ||
+          c.phoneNumber.toLowerCase().includes(q)
+      );
+    }
+    if (activeSubFilter === 'OVERDUE') {
+      list = list.filter((c) => c.dueTag === 'OVERDUE');
+    } else if (activeSubFilter === 'DUE_TODAY') {
+      list = list.filter((c) => c.dueTag === 'DUE_TODAY');
+    }
+    return list;
+  }, [rawReceivables, searchQuery, activeSubFilter]);
+
+  // Filtered Payables
+  const filteredPayables = useMemo(() => {
+    let list = rawPayables;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (c) =>
+          c.displayName.toLowerCase().includes(q) ||
+          c.phoneNumber.toLowerCase().includes(q)
+      );
+    }
+    if (activeSubFilter === 'OVERDUE') {
+      list = list.filter((c) => c.dueTag === 'OVERDUE');
+    } else if (activeSubFilter === 'DUE_TODAY') {
+      list = list.filter((c) => c.dueTag === 'DUE_TODAY');
+    }
+    return list;
+  }, [rawPayables, searchQuery, activeSubFilter]);
+
+  const overdueReceivablesCount = useMemo(
+    () => rawReceivables.filter((c) => c.dueTag === 'OVERDUE').length,
+    [rawReceivables]
+  );
+
+  const overduePayablesCount = useMemo(
+    () => rawPayables.filter((c) => c.dueTag === 'OVERDUE').length,
+    [rawPayables]
+  );
 
   const handleOpenRemind = (contact: UdhaarLedgerItemDto) => {
     setReminderTarget({
@@ -102,6 +156,56 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
       remainingPaise: contact.remainingPaise,
       dueDate: contact.dueDate,
     });
+  };
+
+  const handleScanBill = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      const res = perm.granted
+        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
+        : await ImagePicker.launchImageLibraryAsync({
+            base64: true,
+            quality: 0.7,
+          });
+
+      if (res.canceled || !res.assets?.[0]?.base64) return;
+
+      setIsScanningBill(true);
+      const scanRes = await scanBillMutation.mutateAsync({
+        imageBase64: res.assets[0].base64,
+        mimeType: res.assets[0].mimeType || 'image/jpeg',
+      });
+      setIsScanningBill(false);
+
+      if (scanRes?.draft) {
+        setPrefillValues({
+          amountRupees: scanRes.draft.extractedAmountRupees || undefined,
+          merchantOrPayee:
+            scanRes.draft.extractedContactName ||
+            scanRes.draft.normalizedTitle ||
+            '',
+          categoryName:
+            scanRes.draft.extractedCategoryName || 'Business Sale',
+          kind: scanRes.draft.intent === 'INCOME' ? 'INCOME' : 'EXPENSE',
+        });
+        setIsManualModalOpen(true);
+      } else {
+        Alert.alert('Bill Scanned', 'Receipt scanned successfully!');
+      }
+    } catch (err: unknown) {
+      setIsScanningBill(false);
+      const msg = err instanceof Error ? err.message : 'Failed to scan bill';
+      Alert.alert('Scan Failed', msg);
+    }
+  };
+
+  const handleOpenAddAccount = (dir: ObligationDirection) => {
+    setDirection(dir);
+    setContactName('');
+    setPhoneNumber('');
+    setPrincipalRupees('');
+    setNote('');
+    setShowNewUdhaarModal(true);
   };
 
   const handleCreateUdhaar = async () => {
@@ -124,419 +228,866 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     setShowNewUdhaarModal(false);
   };
 
+  if (ledgerQuery.isLoading) {
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <SkeletonLoader count={4} height={80} />
+      </ScrollView>
+    );
+  }
+
+  if (ledgerQuery.isError) {
+    const errMsg =
+      ledgerQuery.error instanceof Error
+        ? ledgerQuery.error.message
+        : 'Unable to load business ledger.';
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ErrorRetryCard
+          errorMessage={errMsg}
+          onRetry={() => ledgerQuery.refetch()}
+        />
+      </ScrollView>
+    );
+  }
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* 1. Credit & Receivables Summary Card */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <Text style={styles.sectionHeader}>CREDIT & RECEIVABLES</Text>
+    <View style={styles.screenWrapper}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 1. Search Bar */}
+        <View style={styles.searchBarBox}>
+          <Ionicons name="search-outline" size={17} color="#94A3B8" />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search customers, suppliers, phone..."
+            placeholderTextColor="#94A3B8"
+            style={styles.searchInput}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle-outline" size={16} color="#94A3B8" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* 2. Top Action Buttons: Scan Bill & Manual Add */}
+        <View style={styles.topActionsRow}>
           <TouchableOpacity
-            onPress={() => setShowNewUdhaarModal(true)}
-            style={[
-              styles.addBtn,
-              { backgroundColor: palette.primaryBrown },
-            ]}
+            activeOpacity={0.85}
+            onPress={handleScanBill}
+            disabled={isScanningBill}
+            style={styles.topScanBtn}
           >
-            <Text style={styles.addBtnText}>New Account</Text>
+            {isScanningBill ? (
+              <ActivityIndicator size="small" color="#002970" />
+            ) : (
+              <>
+                <Ionicons name="scan-outline" size={18} color="#002970" />
+                <Text style={styles.topScanBtnText}>Scan Bill</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setIsManualModalOpen(true)}
+            style={styles.topManualBtn}
+          >
+            <Ionicons name="add" size={19} color="#FFFFFF" />
+            <Text style={styles.topManualBtnText}>Manual Add</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.metricsRow}>
-          <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>Total Receivable</Text>
-            <Text style={styles.willGetValue}>
-              {formatINR(summary?.totalWillGetPaise || 0)}
-            </Text>
-          </View>
+        {/* 3. Separated Receivable & Payable Summary Cards */}
+        <View style={styles.summaryCardsRow}>
+          {/* Card 1: Receivables (You Will Get) */}
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => {
+              setActiveLedgerType('RECEIVABLE');
+              setActiveSubFilter('ALL');
+            }}
+            style={[
+              styles.summaryCardHalf,
+              styles.receivableCard,
+              activeLedgerType === 'RECEIVABLE' && styles.cardActiveGreen,
+            ]}
+          >
+            <View style={styles.cardHeaderSmall}>
+              <View style={styles.pillGreenBadge}>
+                <Ionicons name="arrow-down" size={11} color="#065F46" />
+                <Text style={styles.pillGreenText}>YOU WILL GET</Text>
+              </View>
+              {overdueReceivablesCount > 0 && (
+                <View style={styles.miniAlertDot} />
+              )}
+            </View>
 
-          <View style={styles.metricDivider} />
-
-          <View style={styles.metricCol}>
-            <Text style={styles.metricLabel}>Total Payable</Text>
-            <Text style={styles.willGiveValue}>
-              {formatINR(summary?.totalWillGivePaise || 0)}
+            <Text style={styles.receivableAmountText}>
+              +{formatINR(summary?.totalWillGetPaise || 0, true)}
             </Text>
-          </View>
+
+            <Text style={styles.cardSubText}>
+              {rawReceivables.length} Customer account(s)
+            </Text>
+          </TouchableOpacity>
+
+          {/* Card 2: Payables (You Owe) */}
+          <TouchableOpacity
+            activeOpacity={0.88}
+            onPress={() => {
+              setActiveLedgerType('PAYABLE');
+              setActiveSubFilter('ALL');
+            }}
+            style={[
+              styles.summaryCardHalf,
+              styles.payableCard,
+              activeLedgerType === 'PAYABLE' && styles.cardActiveRed,
+            ]}
+          >
+            <View style={styles.cardHeaderSmall}>
+              <View style={styles.pillRedBadge}>
+                <Ionicons name="arrow-up" size={11} color="#991B1B" />
+                <Text style={styles.pillRedText}>YOU OWE</Text>
+              </View>
+              {overduePayablesCount > 0 && (
+                <View style={styles.miniAlertDot} />
+              )}
+            </View>
+
+            <Text style={styles.payableAmountText}>
+              -{formatINR(summary?.totalWillGivePaise || 0, true)}
+            </Text>
+
+            <Text style={styles.cardSubText}>
+              {rawPayables.length} Supplier account(s)
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {(dueRemindersQuery.data?.dueSoonCount || 0) > 0 && (
-          <View style={styles.dueStrip}>
-            <Text style={styles.dueStripText}>
-              {dueRemindersQuery.data?.dueSoonCount} account(s) due within 24h
-              or overdue
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* 2. Segmented Filter Bar */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        {(
-          [
-            { id: 'ALL', label: 'All Accounts' },
-            { id: 'OVERDUE', label: 'Overdue' },
-            { id: 'DUE_TODAY', label: 'Due Today' },
-            { id: 'CUSTOMERS', label: 'Receivables' },
-            { id: 'SUPPLIERS', label: 'Payables' },
-          ] as { id: FilterChip; label: string }[]
-        ).map((chip) => {
-          const isActive = activeFilter === chip.id;
-          return (
-            <TouchableOpacity
-              key={chip.id}
-              onPress={() => setActiveFilter(chip.id)}
+        {/* 4. Prominent Two-Tab Segmented Switcher */}
+        <View style={styles.segmentedTabContainer}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => {
+              setActiveLedgerType('RECEIVABLE');
+              setActiveSubFilter('ALL');
+            }}
+            style={[
+              styles.segmentedTabBtn,
+              activeLedgerType === 'RECEIVABLE' && styles.tabBtnActiveGreen,
+            ]}
+          >
+            <Ionicons
+              name="people-outline"
+              size={16}
+              color={activeLedgerType === 'RECEIVABLE' ? '#FFFFFF' : '#64748B'}
+            />
+            <Text
               style={[
-                styles.filterChip,
-                isActive && {
-                  backgroundColor: palette.primaryBrown,
-                  borderColor: palette.primaryBrown,
-                },
+                styles.segmentedTabText,
+                activeLedgerType === 'RECEIVABLE' && styles.tabTextActive,
               ]}
             >
-              <Text
-                style={[
-                  styles.filterChipText,
-                  { color: isActive ? '#FFFFFF' : '#475569' },
-                ]}
-              >
-                {chip.label}
+              Receivables ({rawReceivables.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => {
+              setActiveLedgerType('PAYABLE');
+              setActiveSubFilter('ALL');
+            }}
+            style={[
+              styles.segmentedTabBtn,
+              activeLedgerType === 'PAYABLE' && styles.tabBtnActiveRed,
+            ]}
+          >
+            <Ionicons
+              name="briefcase-outline"
+              size={16}
+              color={activeLedgerType === 'PAYABLE' ? '#FFFFFF' : '#64748B'}
+            />
+            <Text
+              style={[
+                styles.segmentedTabText,
+                activeLedgerType === 'PAYABLE' && styles.tabTextActive,
+              ]}
+            >
+              Payables ({rawPayables.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 5. Sub-Filter Chips for Active Ledger */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.subFiltersRow}
+        >
+          <TouchableOpacity
+            onPress={() => setActiveSubFilter('ALL')}
+            style={[
+              styles.filterChip,
+              activeSubFilter === 'ALL' && styles.filterChipActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeSubFilter === 'ALL' && styles.filterChipTextActive,
+              ]}
+            >
+              {activeLedgerType === 'RECEIVABLE'
+                ? `All Customers (${rawReceivables.length})`
+                : `All Suppliers (${rawPayables.length})`}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setActiveSubFilter('OVERDUE')}
+            style={[
+              styles.filterChip,
+              activeSubFilter === 'OVERDUE' && styles.filterChipActiveRed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeSubFilter === 'OVERDUE' && styles.filterChipTextActiveRed,
+              ]}
+            >
+              Overdue (
+              {activeLedgerType === 'RECEIVABLE'
+                ? overdueReceivablesCount
+                : overduePayablesCount}
+              )
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setActiveSubFilter('DUE_TODAY')}
+            style={[
+              styles.filterChip,
+              activeSubFilter === 'DUE_TODAY' && styles.filterChipActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                activeSubFilter === 'DUE_TODAY' && styles.filterChipTextActive,
+              ]}
+            >
+              Due Today
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* 6. Dedicated Accounts List Card */}
+        <View style={styles.passbookCard}>
+          <View style={styles.passbookHeaderRow}>
+            <View>
+              <Text style={styles.sectionHeader}>
+                {activeLedgerType === 'RECEIVABLE'
+                  ? 'CUSTOMER RECEIVABLES'
+                  : 'SUPPLIER PAYABLES'}
+              </Text>
+              <Text style={styles.sectionSubtitle}>
+                {activeLedgerType === 'RECEIVABLE'
+                  ? 'People who owe money to this business'
+                  : 'Vendors & suppliers this business owes money to'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => handleOpenAddAccount(activeLedgerType)}
+              style={styles.addAccountHeaderBtn}
+            >
+              <Ionicons name="add" size={15} color="#FFFFFF" />
+              <Text style={styles.addAccountHeaderBtnText}>
+                {activeLedgerType === 'RECEIVABLE' ? 'Customer' : 'Supplier'}
               </Text>
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {/* 3. Executive Ledger Accounts List */}
-      <View style={styles.passbookCard}>
-        <View style={styles.passbookHeaderRow}>
-          <Text style={styles.sectionHeader}>
-            LEDGER ACCOUNTS ({filteredContacts.length})
-          </Text>
-        </View>
-
-        {filteredContacts.length === 0 ? (
-          <View style={{ padding: 16 }}>
-            <EmptyStateCard
-              title="No Active Accounts"
-              message="No receivables or payables match this filter."
-              actionLabel="New Account"
-              onActionPress={() => setShowNewUdhaarModal(true)}
-            />
           </View>
-        ) : (
-          filteredContacts.map((contact) => {
-            const isReceivable = contact.direction === 'RECEIVABLE';
-            const isOverdue = contact.dueTag === 'OVERDUE';
 
-            return (
-              <TouchableOpacity
-                key={contact.obligationId}
-                activeOpacity={0.85}
-                onPress={() => onOpenContactDetail(contact.contactId)}
-                style={styles.accountRow}
-              >
-                <View style={styles.accountRowLeft}>
-                  <Text style={styles.contactNameText} numberOfLines={1}>
-                    {contact.displayName}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.contactMetaText,
-                      isOverdue && { color: '#991B1B', fontWeight: '500' },
-                    ]}
-                    numberOfLines={1}
+          {/* List items */}
+          {activeLedgerType === 'RECEIVABLE' ? (
+            filteredReceivables.length === 0 ? (
+              <View style={{ padding: 16 }}>
+                <EmptyStateCard
+                  title="No Receivable Accounts"
+                  message={
+                    searchQuery
+                      ? 'No customer matched your search.'
+                      : 'You do not have any pending customer receivables.'
+                  }
+                  actionLabel="+ Add Customer"
+                  onActionPress={() => handleOpenAddAccount('RECEIVABLE')}
+                />
+              </View>
+            ) : (
+              filteredReceivables.map((contact) => {
+                const isOverdue = contact.dueTag === 'OVERDUE';
+                return (
+                  <TouchableOpacity
+                    key={contact.obligationId}
+                    activeOpacity={0.85}
+                    onPress={() => onOpenContactDetail(contact.contactId)}
+                    style={styles.accountRow}
                   >
-                    Due {contact.dueDate}
-                    {isOverdue ? ' (Overdue)' : ''} • Paid{' '}
-                    {formatINR(contact.repaidPaise)} of{' '}
-                    {formatINR(contact.principalPaise)}
-                  </Text>
-                </View>
+                    <View style={styles.accountRowLeft}>
+                      <Text style={styles.contactNameText} numberOfLines={1}>
+                        {contact.displayName}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.contactMetaText,
+                          isOverdue && { color: '#DC2626', fontWeight: '600' },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        Due {contact.dueDate}
+                        {isOverdue ? ' • OVERDUE' : ''} • Paid{' '}
+                        {formatINR(contact.repaidPaise)} of{' '}
+                        {formatINR(contact.principalPaise)}
+                      </Text>
+                    </View>
 
-                <View style={styles.accountRowRight}>
-                  <Text
-                    style={[
-                      styles.balanceAmountText,
-                      {
-                        color: isReceivable ? '#065F46' : '#991B1B',
-                      },
-                    ]}
-                  >
-                    {isReceivable ? '+' : '-'}
-                    {formatINR(contact.remainingPaise, true)}
-                  </Text>
+                    <View style={styles.accountRowRight}>
+                      <Text style={styles.receivableRowAmount}>
+                        +{formatINR(contact.remainingPaise, true)}
+                      </Text>
 
-                  {isReceivable && contact.remainingPaise > 0 && (
-                    <TouchableOpacity
-                      onPress={() => handleOpenRemind(contact)}
-                      style={styles.remindLinkBtn}
+                      {contact.remainingPaise > 0 && (
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => handleOpenRemind(contact)}
+                          style={styles.notifyBtn}
+                        >
+                          <Ionicons
+                            name="paper-plane-outline"
+                            size={12}
+                            color="#059669"
+                          />
+                          <Text style={styles.notifyBtnText}>Notify</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )
+          ) : filteredPayables.length === 0 ? (
+            <View style={{ padding: 16 }}>
+              <EmptyStateCard
+                title="No Payable Accounts"
+                message={
+                  searchQuery
+                    ? 'No supplier matched your search.'
+                    : 'You do not have any pending payments owed to suppliers.'
+                }
+                actionLabel="+ Add Supplier"
+                onActionPress={() => handleOpenAddAccount('PAYABLE')}
+              />
+            </View>
+          ) : (
+            filteredPayables.map((contact) => {
+              const isOverdue = contact.dueTag === 'OVERDUE';
+              return (
+                <TouchableOpacity
+                  key={contact.obligationId}
+                  activeOpacity={0.85}
+                  onPress={() => onOpenContactDetail(contact.contactId)}
+                  style={styles.accountRow}
+                >
+                  <View style={styles.accountRowLeft}>
+                    <Text style={styles.contactNameText} numberOfLines={1}>
+                      {contact.displayName}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.contactMetaText,
+                        isOverdue && { color: '#DC2626', fontWeight: '600' },
+                      ]}
+                      numberOfLines={1}
                     >
-                      <Text style={styles.remindLinkText}>Notify</Text>
+                      Due {contact.dueDate}
+                      {isOverdue ? ' • OVERDUE' : ''} • Paid{' '}
+                      {formatINR(contact.repaidPaise)} of{' '}
+                      {formatINR(contact.principalPaise)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.accountRowRight}>
+                    <Text style={styles.payableRowAmount}>
+                      -{formatINR(contact.remainingPaise, true)}
+                    </Text>
+
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => onOpenContactDetail(contact.contactId)}
+                      style={styles.payBtn}
+                    >
+                      <Text style={styles.payBtnText}>Pay / Details</Text>
                     </TouchableOpacity>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
 
-      {/* Modal: New Credit / Receivable Account */}
-      <Modal visible={showNewUdhaarModal} transparent animationType="fade">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>New Ledger Account</Text>
+        {/* Modal: New Credit / Receivable Account */}
+        <Modal visible={showNewUdhaarModal} transparent animationType="fade">
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>
+                {direction === 'RECEIVABLE'
+                  ? 'New Customer Receivable'
+                  : 'New Supplier Payable'}
+              </Text>
 
-            <View style={styles.dirRow}>
-              <TouchableOpacity
-                onPress={() => setDirection('RECEIVABLE')}
-                style={[
-                  styles.dirBtn,
-                  direction === 'RECEIVABLE' && {
-                    backgroundColor: '#065F46',
-                    borderColor: '#065F46',
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    fontFamily: SYSTEM_FONT_STACK,
-                    fontSize: 12,
-                    fontWeight: '600',
-                    color: direction === 'RECEIVABLE' ? '#FFFFFF' : '#0F172A',
-                  }}
+              <View style={styles.dirRow}>
+                <TouchableOpacity
+                  onPress={() => setDirection('RECEIVABLE')}
+                  style={[
+                    styles.dirBtn,
+                    direction === 'RECEIVABLE' && {
+                      backgroundColor: '#065F46',
+                      borderColor: '#065F46',
+                    },
+                  ]}
                 >
-                  Receivable (Credit Given)
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={{
+                      fontFamily: SYSTEM_FONT_STACK,
+                      fontSize: 12,
+                      fontWeight: '700',
+                      color:
+                        direction === 'RECEIVABLE' ? '#FFFFFF' : '#0F172A',
+                    }}
+                  >
+                    Receivable (Customer)
+                  </Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => setDirection('PAYABLE')}
-                style={[
-                  styles.dirBtn,
-                  direction === 'PAYABLE' && {
-                    backgroundColor: '#991B1B',
-                    borderColor: '#991B1B',
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    fontFamily: SYSTEM_FONT_STACK,
-                    fontSize: 12,
-                    fontWeight: '600',
-                    color: direction === 'PAYABLE' ? '#FFFFFF' : '#0F172A',
-                  }}
+                <TouchableOpacity
+                  onPress={() => setDirection('PAYABLE')}
+                  style={[
+                    styles.dirBtn,
+                    direction === 'PAYABLE' && {
+                      backgroundColor: '#991B1B',
+                      borderColor: '#991B1B',
+                    },
+                  ]}
                 >
-                  Payable (Credit Taken)
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Text
+                    style={{
+                      fontFamily: SYSTEM_FONT_STACK,
+                      fontSize: 12,
+                      fontWeight: '700',
+                      color: direction === 'PAYABLE' ? '#FFFFFF' : '#0F172A',
+                    }}
+                  >
+                    Payable (Supplier)
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.inputLabel}>Counterparty Name</Text>
-            <TextInput
-              value={contactName}
-              onChangeText={setContactName}
-              placeholder="e.g. Ravi Sharma"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-            />
+              <Text style={styles.inputLabel}>
+                {direction === 'RECEIVABLE' ? 'Customer Name' : 'Supplier Name'}
+              </Text>
+              <TextInput
+                value={contactName}
+                onChangeText={setContactName}
+                placeholder={
+                  direction === 'RECEIVABLE'
+                    ? 'e.g. Rahul Verma'
+                    : 'e.g. Shivam Wholesalers'
+                }
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
 
-            <Text style={styles.inputLabel}>Phone Number</Text>
-            <TextInput
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              keyboardType="phone-pad"
-              placeholder="+919876543210"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-            />
+              <Text style={styles.inputLabel}>Phone Number</Text>
+              <TextInput
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+                placeholder="+91 98765 43210"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
 
-            <Text style={styles.inputLabel}>Principal Amount (INR)</Text>
-            <TextInput
-              value={principalRupees}
-              onChangeText={setPrincipalRupees}
-              keyboardType="numeric"
-              placeholder="0.00"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-            />
+              <Text style={styles.inputLabel}>Principal Amount (INR)</Text>
+              <TextInput
+                value={principalRupees}
+                onChangeText={setPrincipalRupees}
+                keyboardType="numeric"
+                placeholder="0.00"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
 
-            <Text style={styles.inputLabel}>Due Date (YYYY-MM-DD)</Text>
-            <TextInput
-              value={dueDate}
-              onChangeText={setDueDate}
-              placeholder="2026-11-15"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-            />
+              <Text style={styles.inputLabel}>Due Date (YYYY-MM-DD)</Text>
+              <TextInput
+                value={dueDate}
+                onChangeText={setDueDate}
+                placeholder="2026-11-15"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
 
-            <Text style={styles.inputLabel}>Reference / Note</Text>
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder="Invoice or description"
-              placeholderTextColor="#94A3B8"
-              style={styles.input}
-            />
+              <Text style={styles.inputLabel}>Reference / Note</Text>
+              <TextInput
+                value={note}
+                onChangeText={setNote}
+                placeholder="Invoice number or item description"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
 
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={() => setShowNewUdhaarModal(false)}
-                style={styles.cancelBtn}
-              >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={() => setShowNewUdhaarModal(false)}
+                  style={styles.cancelBtn}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={handleCreateUdhaar}
-                disabled={createObligationMutation.isPending}
-                style={[
-                  styles.saveBtn,
-                  { backgroundColor: palette.primaryBrown },
-                ]}
-              >
-                <Text style={styles.saveBtnText}>
-                  {createObligationMutation.isPending
-                    ? 'Saving...'
-                    : 'Save Account'}
-                </Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleCreateUdhaar}
+                  disabled={createObligationMutation.isPending}
+                  style={[
+                    styles.saveBtn,
+                    {
+                      backgroundColor:
+                        direction === 'RECEIVABLE' ? '#059669' : '#0F172A',
+                    },
+                  ]}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {createObligationMutation.isPending
+                      ? 'Saving...'
+                      : 'Save Account'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      <PoliteReminderModal
-        visible={reminderTarget !== null}
-        target={reminderTarget}
-        onClose={() => setReminderTarget(null)}
-      />
-    </ScrollView>
+        {/* Modal: Manual Transaction / Bill Scan Prefill */}
+        <ManualTransactionModal
+          visible={isManualModalOpen}
+          onClose={() => {
+            setIsManualModalOpen(false);
+            setPrefillValues(undefined);
+          }}
+          initialValues={prefillValues}
+        />
+
+        {/* Modal: Polite Reminder Target */}
+        <PoliteReminderModal
+          visible={reminderTarget !== null}
+          target={reminderTarget}
+          onClose={() => setReminderTarget(null)}
+        />
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
+  },
   scrollContent: {
-    padding: 14,
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 10,
     paddingBottom: 90,
     gap: 12,
   },
-  summaryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 14,
+  searchBarBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    gap: 8,
   },
-  summaryTopRow: {
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0F172A',
+    padding: 0,
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  topActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  topScanBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  topScanBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#002970',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  topManualBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  topManualBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  summaryCardsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  summaryCardHalf: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1.5,
+  },
+  receivableCard: {
+    borderColor: '#A7F3D0',
+    backgroundColor: '#F0FDF4',
+  },
+  payableCard: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  cardActiveGreen: {
+    borderWidth: 2,
+    borderColor: '#059669',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  cardActiveRed: {
+    borderWidth: 2,
+    borderColor: '#DC2626',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  cardHeaderSmall: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 6,
   },
-  sectionHeader: {
+  pillGreenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  pillGreenText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#065F46',
     fontFamily: SYSTEM_FONT_STACK,
+    letterSpacing: 0.5,
+  },
+  pillRedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  pillRedText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#991B1B',
+    fontFamily: SYSTEM_FONT_STACK,
+    letterSpacing: 0.5,
+  },
+  miniAlertDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#DC2626',
+  },
+  receivableAmountText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#065F46',
+    fontFamily: SYSTEM_FONT_STACK,
+    fontVariant: ['tabular-nums'],
+    marginVertical: 2,
+  },
+  payableAmountText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#991B1B',
+    fontFamily: SYSTEM_FONT_STACK,
+    fontVariant: ['tabular-nums'],
+    marginVertical: 2,
+  },
+  cardSubText: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  segmentedTabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    padding: 3,
+  },
+  segmentedTabBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  tabBtnActiveGreen: {
+    backgroundColor: '#059669',
+  },
+  tabBtnActiveRed: {
+    backgroundColor: '#DC2626',
+  },
+  segmentedTabText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.65,
-  },
-  addBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  addBtnText: {
     fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 12,
-    fontWeight: '600',
+  },
+  tabTextActive: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
-  metricsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  metricCol: {
-    flex: 1,
-  },
-  metricLabel: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#64748B',
-    marginBottom: 3,
-  },
-  willGetValue: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#065F46',
-    fontVariant: ['tabular-nums'],
-  },
-  willGiveValue: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#991B1B',
-    fontVariant: ['tabular-nums'],
-  },
-  metricDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: '#E2E8F0',
-    marginHorizontal: 14,
-  },
-  dueStrip: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  dueStripText: {
-    fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 12,
-    color: '#991B1B',
-    fontWeight: '500',
-  },
-  filterRow: {
+  subFiltersRow: {
     gap: 8,
     paddingVertical: 2,
   },
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 6,
+    borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
+  filterChipActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  filterChipActiveRed: {
+    backgroundColor: '#DC2626',
+    borderColor: '#DC2626',
+  },
   filterChipText: {
-    fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
     fontWeight: '600',
+    color: '#475569',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  filterChipTextActiveRed: {
+    color: '#FFFFFF',
   },
   passbookCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
   passbookHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FAFAFA',
+  },
+  sectionHeader: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.5,
+  },
+  sectionSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  addAccountHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  addAccountHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: SYSTEM_FONT_STACK,
   },
   accountRow: {
     flexDirection: 'row',
@@ -550,40 +1101,65 @@ const styles = StyleSheet.create({
   },
   accountRowLeft: {
     flex: 1,
-    paddingRight: 12,
+    paddingRight: 10,
   },
   contactNameText: {
     fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 15,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#0F172A',
   },
   contactMetaText: {
     fontFamily: SYSTEM_FONT_STACK,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '400',
-    color: '#94A3B8',
-    marginTop: 3,
+    color: '#64748B',
+    marginTop: 2,
   },
   accountRowRight: {
     alignItems: 'flex-end',
     gap: 4,
   },
-  balanceAmountText: {
+  receivableRowAmount: {
     fontFamily: SYSTEM_FONT_STACK,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '800',
+    color: '#065F46',
     fontVariant: ['tabular-nums'],
   },
-  remindLinkBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
+  payableRowAmount: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#DC2626',
+    fontVariant: ['tabular-nums'],
+  },
+  notifyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  notifyBtnText: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  payBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  remindLinkText: {
+  payBtnText: {
     fontFamily: SYSTEM_FONT_STACK,
     fontSize: 11,
     fontWeight: '600',
@@ -591,7 +1167,7 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -600,15 +1176,20 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
   },
   modalTitle: {
     fontFamily: SYSTEM_FONT_STACK,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '800',
     color: '#0F172A',
     marginBottom: 14,
   },
@@ -619,8 +1200,8 @@ const styles = StyleSheet.create({
   },
   dirBtn: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingVertical: 9,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
@@ -629,7 +1210,7 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontFamily: SYSTEM_FONT_STACK,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#475569',
     marginTop: 8,
     marginBottom: 4,
@@ -637,11 +1218,11 @@ const styles = StyleSheet.create({
   input: {
     fontFamily: SYSTEM_FONT_STACK,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
     backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
     fontSize: 14,
     color: '#0F172A',
   },
@@ -653,10 +1234,11 @@ const styles = StyleSheet.create({
   cancelBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelBtnText: {
     fontFamily: SYSTEM_FONT_STACK,
@@ -667,13 +1249,14 @@ const styles = StyleSheet.create({
   saveBtn: {
     flex: 2,
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   saveBtnText: {
     fontFamily: SYSTEM_FONT_STACK,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
 });

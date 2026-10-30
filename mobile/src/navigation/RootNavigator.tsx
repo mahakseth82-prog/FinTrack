@@ -416,6 +416,36 @@ export const RootNavigator: React.FC = () => {
           </TouchableOpacity>
         )}
 
+        {/* Floating Circular Green Mic Icon (Present at bottom side, zero cards) */}
+        {!selectedContactId && activeTab === 'HOME' && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleMicTap}
+            style={[
+              styles.floatingMicFab,
+              isRecording && styles.floatingMicFabRecording,
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.fabInnerCircle,
+                {
+                  backgroundColor: isRecording
+                    ? '#DC2626'
+                    : EMERALD_THEME.emeraldGreen,
+                  transform: [{ scale: pulseAnim }],
+                },
+              ]}
+            >
+              <Ionicons
+                name={isRecording ? 'radio-button-on' : 'mic'}
+                size={26}
+                color="#FFFFFF"
+              />
+            </Animated.View>
+          </TouchableOpacity>
+        )}
+
         {/* Bottom Navigation Bar: Clean 3-Tab Layout [ Home | Transactions | Profile ] */}
         {!selectedContactId && (
           <View style={styles.bottomBar}>
@@ -567,14 +597,17 @@ const styles = StyleSheet.create({
     zIndex: 100,
     shadowColor: '#059669',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 10,
     elevation: 8,
   },
+  floatingMicFabRecording: {
+    shadowColor: '#DC2626',
+  },
   fabInnerCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
   },

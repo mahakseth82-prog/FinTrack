@@ -340,6 +340,34 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           )}
         </View>
 
+        {/* Action Row: Scan Bill & Manual Add (Top Side of Monthly Spending) */}
+        <View style={styles.topActionsRow}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={handleScanBill}
+            disabled={isScanningBill}
+            style={styles.topScanBtn}
+          >
+            {isScanningBill ? (
+              <ActivityIndicator size="small" color="#002970" />
+            ) : (
+              <>
+                <Ionicons name="scan-outline" size={18} color="#002970" />
+                <Text style={styles.topScanBtnText}>Scan Bill</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setIsManualModalOpen(true)}
+            style={styles.topManualBtn}
+          >
+            <Ionicons name="add" size={19} color="#FFFFFF" />
+            <Text style={styles.topManualBtnText}>Manual Add</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Monthly Spending Summary Card - Directly below search bar */}
         <View style={styles.heroBudgetCard}>
           {/* Card Header with Month Navigation */}
@@ -569,45 +597,6 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           initialValues={prefillValues}
         />
       </ScrollView>
-
-      {/* 5. Bottom Large Pill Buttons (Pinned for Easy Thumb Reach above bottom tab bar) */}
-      <View style={styles.bottomPillRow}>
-        {/* Left Side: Scan Bill (Paytm Deep Royal Blue #002970) */}
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={handleScanBill}
-          disabled={isScanningBill}
-          style={styles.scanBillPill}
-        >
-          {isScanningBill ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <Ionicons name="scan-outline" size={21} color="#FFFFFF" />
-              <Text style={styles.scanBillPillText}>Scan Bill</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        {/* Right Side: Voice Entry (Vibrant Emerald Green #059669) */}
-        <TouchableOpacity
-          activeOpacity={0.88}
-          onPress={onTriggerVoice}
-          style={[
-            styles.voicePill,
-            isRecordingVoice && styles.voicePillRecording,
-          ]}
-        >
-          <Ionicons
-            name={isRecordingVoice ? 'radio-button-on' : 'mic'}
-            size={21}
-            color="#FFFFFF"
-          />
-          <Text style={styles.voicePillText}>
-            {isRecordingVoice ? 'Listening...' : 'Voice Entry'}
-          </Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };
@@ -628,7 +617,7 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 130, // Space to scroll cleanly behind floating bottom pills
+    paddingBottom: 90,
   },
   searchBarBox: {
     flexDirection: 'row',
@@ -647,6 +636,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#0F172A',
     padding: 0,
+  },
+  topActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  topScanBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1.5,
+    borderColor: '#BFDBFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  topScanBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#002970',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  topManualBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  topManualBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: SYSTEM_FONT_STACK,
   },
   heroBudgetCard: {
     backgroundColor: '#FFFFFF',
@@ -866,61 +900,5 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#94A3B8',
     marginTop: 1,
-  },
-  bottomPillRow: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
-    zIndex: 99,
-  },
-  scanBillPill: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#002970', // Paytm Deep Royal Blue
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#002970',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  scanBillPillText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
-  },
-  voicePill: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#059669', // Vibrant Emerald Green
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#059669',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  voicePillRecording: {
-    backgroundColor: '#DC2626',
-  },
-  voicePillText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
   },
 });
