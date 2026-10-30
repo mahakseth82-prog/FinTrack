@@ -34,6 +34,8 @@ interface PersonalDashboardProps {
   isRecordingVoice?: boolean;
 }
 
+type SubNavTab = 'TRANSACTIONS' | 'INSIGHTS' | 'BUDGETS' | 'REPORTS';
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -101,6 +103,9 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   isRecordingVoice = false,
 }) => {
   const { activeWorkspaceId } = useFinTrackTheme();
+
+  // Sub-nav tab state: Transactions | Insights | Budgets | Reports
+  const [activeSubTab, setActiveSubTab] = useState<SubNavTab>('TRANSACTIONS');
 
   // Month navigation
   const now = new Date();
@@ -316,328 +321,354 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     }
   };
 
+  const handleSubTabSelect = (tab: SubNavTab) => {
+    setActiveSubTab(tab);
+    if (tab === 'INSIGHTS') {
+      onNavigateToTab?.('INSIGHTS');
+    } else if (tab === 'TRANSACTIONS') {
+      onNavigateToTab?.('TRANSACTIONS');
+    }
+  };
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* 1. Compact Search Bar */}
-      <View style={styles.searchBarBox}>
-        <Ionicons name="search-outline" size={17} color="#94A3B8" />
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search transactions, merchants, notes..."
-          placeholderTextColor="#94A3B8"
-          style={styles.searchInput}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle-outline" size={16} color="#94A3B8" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* 2. Paytm-Style Horizontal 4-Item Quick Action Row */}
-      <View style={styles.quickActionsCard}>
-        {/* 1. Scan Bill */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleScanBill}
-          disabled={isScanningBill}
-          style={styles.actionCol}
-        >
-          <View style={[styles.actionCircle, { backgroundColor: '#059669' }]}>
-            {isScanningBill ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Ionicons name="scan-outline" size={22} color="#FFFFFF" />
-            )}
-          </View>
-          <Text style={styles.actionLabel}>Scan Bill</Text>
-        </TouchableOpacity>
-
-        {/* 2. Voice Entry */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={onTriggerVoice}
-          style={styles.actionCol}
-        >
-          <View
-            style={[
-              styles.actionCircle,
-              { backgroundColor: isRecordingVoice ? '#DC2626' : '#0F172A' },
-            ]}
-          >
-            <Ionicons name="mic" size={22} color="#FFFFFF" />
-          </View>
-          <Text style={styles.actionLabel}>
-            {isRecordingVoice ? 'Recording' : 'Voice Entry'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* 3. Manual Add */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => {
-            setPrefillValues(undefined);
-            setIsManualModalOpen(true);
-          }}
-          style={styles.actionCol}
-        >
-          <View style={[styles.actionCircle, { backgroundColor: '#2563EB' }]}>
-            <Ionicons name="add" size={24} color="#FFFFFF" />
-          </View>
-          <Text style={styles.actionLabel}>Manual Add</Text>
-        </TouchableOpacity>
-
-        {/* 4. Khata Ledger */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => onNavigateToTab?.('UDHAAR')}
-          style={styles.actionCol}
-        >
-          <View style={[styles.actionCircle, { backgroundColor: '#0284C7' }]}>
-            <Ionicons name="book-outline" size={20} color="#FFFFFF" />
-          </View>
-          <Text style={styles.actionLabel}>Khata Ledger</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 3. Total Spending Overview Card */}
-      <View style={styles.heroBudgetCard}>
-        {/* Card Header with Month Navigation */}
-        <View style={styles.cardHeaderRow}>
-          <View>
-            <Text style={styles.heroSubLabel}>MONTHLY SPENDING</Text>
-            <Text style={styles.monthSelectorTitle}>{monthLabel}</Text>
-          </View>
-
-          <View style={styles.monthControls}>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={handlePrevMonth}
-              style={styles.monthArrowBtn}
-            >
-              <Ionicons name="chevron-back" size={15} color="#0F172A" />
+    <View style={styles.screenWrapper}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* 1. Compact Search Bar */}
+        <View style={styles.searchBarBox}>
+          <Ionicons name="search-outline" size={17} color="#94A3B8" />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search transactions, merchants, notes..."
+            placeholderTextColor="#94A3B8"
+            style={styles.searchInput}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle-outline" size={16} color="#94A3B8" />
             </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={handleNextMonth}
-              style={styles.monthArrowBtn}
-            >
-              <Ionicons name="chevron-forward" size={15} color="#0F172A" />
-            </TouchableOpacity>
-          </View>
+          )}
         </View>
 
-        {/* Amount & Badge */}
-        <View style={styles.heroAmountRow}>
-          {transactionsQuery.isLoading && allTransactions.length === 0 ? (
-            <ActivityIndicator
-              size="small"
-              color="#059669"
-              style={{ alignSelf: 'flex-start', marginVertical: 8 }}
-            />
-          ) : (
-            <Text style={styles.heroAmountText}>
-              {formatINR(totalExpensePaise)}
-            </Text>
-          )}
+        {/* 2. Clean, Uncolored Sub-Nav Tab Strip (Paytm-style clean tabs) */}
+        <View style={styles.subNavStrip}>
+          {(['TRANSACTIONS', 'INSIGHTS', 'BUDGETS', 'REPORTS'] as SubNavTab[]).map(
+            (tab) => {
+              const isSelected = activeSubTab === tab;
+              const label =
+                tab === 'TRANSACTIONS'
+                  ? 'Transactions'
+                  : tab === 'INSIGHTS'
+                  ? 'Insights'
+                  : tab === 'BUDGETS'
+                  ? 'Budgets'
+                  : 'Reports';
 
-          <View
-            style={[
-              styles.budgetBadge,
-              budgetUsedPercent >= 100
-                ? styles.badgeAlert
-                : budgetUsedPercent >= 80
-                ? styles.badgeWarning
-                : styles.badgeNormal,
-            ]}
-          >
-            <Text
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  activeOpacity={0.7}
+                  onPress={() => handleSubTabSelect(tab)}
+                  style={[styles.subNavItem, isSelected && styles.subNavItemActive]}
+                >
+                  <Text
+                    style={[
+                      styles.subNavText,
+                      isSelected && styles.subNavTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                  {isSelected && <View style={styles.subNavIndicator} />}
+                </TouchableOpacity>
+              );
+            }
+          )}
+        </View>
+
+        {/* 3. Monthly Spending Summary Card */}
+        <View style={styles.heroBudgetCard}>
+          {/* Card Header with Month Navigation */}
+          <View style={styles.cardHeaderRow}>
+            <View>
+              <Text style={styles.heroSubLabel}>MONTHLY SPENDING</Text>
+              <Text style={styles.monthSelectorTitle}>{monthLabel}</Text>
+            </View>
+
+            <View style={styles.monthControls}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handlePrevMonth}
+                style={styles.monthArrowBtn}
+              >
+                <Ionicons name="chevron-back" size={15} color="#0F172A" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={handleNextMonth}
+                style={styles.monthArrowBtn}
+              >
+                <Ionicons name="chevron-forward" size={15} color="#0F172A" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Amount & Badge */}
+          <View style={styles.heroAmountRow}>
+            {transactionsQuery.isLoading && allTransactions.length === 0 ? (
+              <ActivityIndicator
+                size="small"
+                color="#059669"
+                style={{ alignSelf: 'flex-start', marginVertical: 8 }}
+              />
+            ) : (
+              <Text style={styles.heroAmountText}>
+                {formatINR(totalExpensePaise)}
+              </Text>
+            )}
+
+            <View
               style={[
-                styles.budgetBadgeText,
+                styles.budgetBadge,
                 budgetUsedPercent >= 100
-                  ? styles.badgeTextAlert
+                  ? styles.badgeAlert
                   : budgetUsedPercent >= 80
-                  ? styles.badgeTextWarning
-                  : styles.badgeTextNormal,
+                  ? styles.badgeWarning
+                  : styles.badgeNormal,
               ]}
             >
-              {budgetUsedPercent}% Used
-            </Text>
-          </View>
-        </View>
-
-        {/* Horizontal Progress Bar */}
-        <View style={styles.progressBarTrack}>
-          <View
-            style={[
-              styles.progressBarFill,
-              {
-                width: `${Math.min(100, Math.max(2, budgetUsedPercent))}%`,
-                backgroundColor: progressBarColor,
-              },
-            ]}
-          />
-        </View>
-
-        {/* Budget Comparison Sub-Row */}
-        <View style={styles.budgetStatsRow}>
-          <View>
-            <Text style={styles.statLabel}>Total Budget</Text>
-            <Text style={styles.statValue}>
-              {formatINR(totalBudgetPaise)}
-            </Text>
+              <Text
+                style={[
+                  styles.budgetBadgeText,
+                  budgetUsedPercent >= 100
+                    ? styles.badgeTextAlert
+                    : budgetUsedPercent >= 80
+                    ? styles.badgeTextWarning
+                    : styles.badgeTextNormal,
+                ]}
+              >
+                {budgetUsedPercent}% Used
+              </Text>
+            </View>
           </View>
 
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.statLabel}>Remaining Budget</Text>
-            <Text
+          {/* Horizontal Progress Bar */}
+          <View style={styles.progressBarTrack}>
+            <View
               style={[
-                styles.statValue,
+                styles.progressBarFill,
                 {
-                  color:
-                    remainingBudgetPaise <= 0
-                      ? EMERALD_THEME.alertRed
-                      : EMERALD_THEME.emeraldGreen,
+                  width: `${Math.min(100, Math.max(2, budgetUsedPercent))}%`,
+                  backgroundColor: progressBarColor,
                 },
               ]}
-            >
-              {formatINR(remainingBudgetPaise)}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* 4. Recent Spends List (Date-Wise) */}
-      <View style={styles.recentSectionCard}>
-        <View style={styles.recentHeaderRow}>
-          <View>
-            <Text style={styles.recentSectionTitle}>Recent Transactions</Text>
-            <Text style={styles.recentSectionSubtitle}>Latest date-wise spends</Text>
+            />
           </View>
 
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => onNavigateToTab?.('TRANSACTIONS')}
-            style={styles.seeAllBtn}
-          >
-            <Text style={styles.seeAllBtnText}>See All</Text>
-            <Ionicons name="chevron-forward" size={13} color="#059669" />
-          </TouchableOpacity>
-        </View>
-
-        {transactionsQuery.isLoading && allTransactions.length === 0 ? (
-          <SkeletonLoader count={3} height={65} />
-        ) : dateGroups.length === 0 ? (
-          <EmptyStateCard
-            title="No Transactions Found"
-            message={
-              searchQuery
-                ? `No transactions matching "${searchQuery}".`
-                : 'Use Quick Actions above to record your first transaction!'
-            }
-          />
-        ) : (
-          dateGroups.slice(0, 4).map((group) => (
-            <View key={group.dateKey} style={styles.dateGroupContainer}>
-              {/* Date Header Banner with Daily Total */}
-              <View style={styles.dateGroupHeaderRow}>
-                <Text style={styles.dateGroupTitle}>{group.displayHeader}</Text>
-                <Text style={styles.dailySpentTotalText}>
-                  Spent: -{formatINR(group.dailySpentPaise)}
-                </Text>
-              </View>
-
-              {group.items.map((item) => {
-                const isInc = item.kind === 'INCOME';
-                const formattedTime = new Date(item.occurredAt).toLocaleTimeString(
-                  'en-IN',
-                  {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true,
-                  }
-                );
-
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    activeOpacity={0.7}
-                    onPress={() => setSelectedTx(item)}
-                    style={styles.transactionRowItem}
-                  >
-                    <View style={styles.txLeftBlock}>
-                      <View
-                        style={[
-                          styles.categoryCircleBadge,
-                          { backgroundColor: isInc ? '#ECFDF5' : '#F1F5F9' },
-                        ]}
-                      >
-                        <Ionicons
-                          name={getCategoryIconName(item.categoryName, isInc)}
-                          size={18}
-                          color={isInc ? '#059669' : '#334155'}
-                        />
-                      </View>
-
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.txMerchantName} numberOfLines={1}>
-                          {item.merchantOrPayee}
-                        </Text>
-                        <Text style={styles.txMetaText}>
-                          {item.categoryName} • {formattedTime} •{' '}
-                          {item.paymentVia || 'UPI'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.txRightBlock}>
-                      <Text
-                        style={[
-                          styles.txAmountText,
-                          { color: isInc ? '#059669' : '#0F172A' },
-                        ]}
-                      >
-                        {isInc ? '+' : '-'}
-                        {formatINR(item.amountPaise)}
-                      </Text>
-                      <Text style={styles.tapToEditHint}>Tap to view/edit</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+          {/* Budget Comparison Sub-Row */}
+          <View style={styles.budgetStatsRow}>
+            <View>
+              <Text style={styles.statLabel}>Total Budget</Text>
+              <Text style={styles.statValue}>
+                {formatINR(totalBudgetPaise)}
+              </Text>
             </View>
-          ))
+
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.statLabel}>Remaining Budget</Text>
+              <Text
+                style={[
+                  styles.statValue,
+                  {
+                    color:
+                      remainingBudgetPaise <= 0
+                        ? EMERALD_THEME.alertRed
+                        : EMERALD_THEME.emeraldGreen,
+                  },
+                ]}
+              >
+                {formatINR(remainingBudgetPaise)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 4. Recent Spends List (Date-Wise) */}
+        <View style={styles.recentSectionCard}>
+          <View style={styles.recentHeaderRow}>
+            <View>
+              <Text style={styles.recentSectionTitle}>Recent Transactions</Text>
+              <Text style={styles.recentSectionSubtitle}>Latest date-wise spends</Text>
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => onNavigateToTab?.('TRANSACTIONS')}
+              style={styles.seeAllBtn}
+            >
+              <Text style={styles.seeAllBtnText}>See All</Text>
+              <Ionicons name="chevron-forward" size={13} color="#059669" />
+            </TouchableOpacity>
+          </View>
+
+          {transactionsQuery.isLoading && allTransactions.length === 0 ? (
+            <SkeletonLoader count={3} height={65} />
+          ) : dateGroups.length === 0 ? (
+            <EmptyStateCard
+              title="No Transactions Found"
+              message={
+                searchQuery
+                  ? `No transactions matching "${searchQuery}".`
+                  : 'Use the buttons at the bottom to record your first transaction!'
+              }
+            />
+          ) : (
+            dateGroups.slice(0, 4).map((group) => (
+              <View key={group.dateKey} style={styles.dateGroupContainer}>
+                {/* Date Header Banner with Daily Total */}
+                <View style={styles.dateGroupHeaderRow}>
+                  <Text style={styles.dateGroupTitle}>{group.displayHeader}</Text>
+                  <Text style={styles.dailySpentTotalText}>
+                    Spent: -{formatINR(group.dailySpentPaise)}
+                  </Text>
+                </View>
+
+                {group.items.map((item) => {
+                  const isInc = item.kind === 'INCOME';
+                  const formattedTime = new Date(item.occurredAt).toLocaleTimeString(
+                    'en-IN',
+                    {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                    }
+                  );
+
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.7}
+                      onPress={() => setSelectedTx(item)}
+                      style={styles.transactionRowItem}
+                    >
+                      <View style={styles.txLeftBlock}>
+                        <View
+                          style={[
+                            styles.categoryCircleBadge,
+                            { backgroundColor: isInc ? '#ECFDF5' : '#F1F5F9' },
+                          ]}
+                        >
+                          <Ionicons
+                            name={getCategoryIconName(item.categoryName, isInc)}
+                            size={18}
+                            color={isInc ? '#059669' : '#334155'}
+                          />
+                        </View>
+
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.txMerchantName} numberOfLines={1}>
+                            {item.merchantOrPayee}
+                          </Text>
+                          <Text style={styles.txMetaText}>
+                            {item.categoryName} • {formattedTime} •{' '}
+                            {item.paymentVia || 'UPI'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.txRightBlock}>
+                        <Text
+                          style={[
+                            styles.txAmountText,
+                            { color: isInc ? '#059669' : '#0F172A' },
+                          ]}
+                        >
+                          {isInc ? '+' : '-'}
+                          {formatINR(item.amountPaise)}
+                        </Text>
+                        <Text style={styles.tapToEditHint}>Tap to view/edit</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Detail / Edit / Delete Modal */}
+        {selectedTx && (
+          <TransactionDetailModal
+            visible={Boolean(selectedTx)}
+            transaction={selectedTx}
+            onClose={() => setSelectedTx(null)}
+          />
         )}
-      </View>
 
-      {/* Detail / Edit / Delete Modal */}
-      {selectedTx && (
-        <TransactionDetailModal
-          visible={Boolean(selectedTx)}
-          transaction={selectedTx}
-          onClose={() => setSelectedTx(null)}
+        {/* Manual Entry Modal */}
+        <ManualTransactionModal
+          visible={isManualModalOpen}
+          onClose={() => {
+            setIsManualModalOpen(false);
+            setPrefillValues(undefined);
+          }}
+          initialValues={prefillValues}
         />
-      )}
+      </ScrollView>
 
-      {/* Manual Entry Modal */}
-      <ManualTransactionModal
-        visible={isManualModalOpen}
-        onClose={() => {
-          setIsManualModalOpen(false);
-          setPrefillValues(undefined);
-        }}
-        initialValues={prefillValues}
-      />
-    </ScrollView>
+      {/* 5. Bottom Large Pill Buttons (Pinned for Easy Thumb Reach) */}
+      <View style={styles.bottomPillRow}>
+        {/* Left Side: Scan Bill (Paytm Deep Royal Blue #002970) */}
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={handleScanBill}
+          disabled={isScanningBill}
+          style={styles.scanBillPill}
+        >
+          {isScanningBill ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="scan-outline" size={19} color="#FFFFFF" />
+              <Text style={styles.scanBillPillText}>Scan Bill</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {/* Right Side: Voice Entry (Vibrant Emerald Green #059669) */}
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={onTriggerVoice}
+          style={[
+            styles.voicePill,
+            isRecordingVoice && styles.voicePillRecording,
+          ]}
+        >
+          <Ionicons
+            name={isRecordingVoice ? 'radio-button-on' : 'mic'}
+            size={19}
+            color="#FFFFFF"
+          />
+          <Text style={styles.voicePillText}>
+            {isRecordingVoice ? 'Listening...' : 'Voice Entry'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    position: 'relative',
+  },
   container: {
     flex: 1,
     width: '100%',
@@ -647,7 +678,7 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 40,
+    paddingBottom: 95, // Space to scroll cleanly behind floating bottom pills
   },
   searchBarBox: {
     flexDirection: 'row',
@@ -658,7 +689,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 42,
-    marginBottom: 12,
+    marginBottom: 8,
     gap: 8,
   },
   searchInput: {
@@ -667,46 +698,40 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     padding: 0,
   },
-  quickActionsCard: {
+  subNavStrip: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 12,
+    paddingTop: 2,
   },
-  actionCol: {
+  subNavItem: {
+    paddingVertical: 9,
+    paddingHorizontal: 6,
     alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
+    position: 'relative',
   },
-  actionCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+  subNavItemActive: {},
+  subNavText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
   },
-  actionLabel: {
-    fontSize: 11,
+  subNavTextActive: {
+    color: '#0F172A',
     fontWeight: '700',
-    color: '#334155',
-    textAlign: 'center',
+  },
+  subNavIndicator: {
+    position: 'absolute',
+    bottom: -1,
+    left: 6,
+    right: 6,
+    height: 2.5,
+    backgroundColor: '#0F172A',
+    borderRadius: 1.5,
   },
   heroBudgetCard: {
     backgroundColor: '#FFFFFF',
@@ -926,5 +951,61 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#94A3B8',
     marginTop: 1,
+  },
+  bottomPillRow: {
+    position: 'absolute',
+    bottom: 12,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    zIndex: 99,
+  },
+  scanBillPill: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#002970', // Paytm Deep Royal Blue
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#002970',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  scanBillPillText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  voicePill: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#059669', // Vibrant Emerald Green
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  voicePillRecording: {
+    backgroundColor: '#DC2626',
+  },
+  voicePillText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });
