@@ -340,7 +340,7 @@ export const RootNavigator: React.FC = () => {
   const isHi = user.preferredLanguage === 'hi';
 
   return (
-    <SafeAreaView style={styles.outerViewport}>
+    <SafeAreaView edges={['top']} style={styles.outerViewport}>
       {/* Strict Mobile Frame Enclosure */}
       <View style={styles.mobileFrame}>
         {!selectedContactId && <HeaderModeSwitcher />}
@@ -380,6 +380,8 @@ export const RootNavigator: React.FC = () => {
             <PersonalDashboardScreen
               onNavigateToTab={(t) => setActiveTab(t)}
               onOpenContactDetail={(id) => setSelectedContactId(id)}
+              onTriggerVoice={handleMicTap}
+              isRecordingVoice={isRecording}
             />
           ) : (
             <BusinessDashboardScreen
@@ -411,27 +413,6 @@ export const RootNavigator: React.FC = () => {
             >
               {voiceStatusMsg}
             </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Floating 1-Tap Mic Action Button (Non-blocking, always available) */}
-        {!selectedContactId && (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={handleMicTap}
-            style={styles.floatingMicFab}
-          >
-            <Animated.View
-              style={[
-                styles.fabInnerCircle,
-                {
-                  backgroundColor: isRecording ? '#DC2626' : EMERALD_THEME.emeraldGreen,
-                  transform: [{ scale: pulseAnim }],
-                },
-              ]}
-            >
-              <Ionicons name="mic" size={24} color="#FFFFFF" />
-            </Animated.View>
           </TouchableOpacity>
         )}
 

@@ -4,6 +4,7 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   StyleSheet,
   ActivityIndicator,
   Alert,
@@ -29,6 +30,8 @@ interface PersonalDashboardProps {
   onNavigateToTab?: (
     tabName: 'HOME' | 'TRANSACTIONS' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE'
   ) => void;
+  onTriggerVoice?: () => void;
+  isRecordingVoice?: boolean;
 }
 
 const MONTH_NAMES = [
@@ -94,16 +97,21 @@ function getCategoryIconName(
 
 export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   onNavigateToTab,
+  onTriggerVoice,
+  isRecordingVoice = false,
 }) => {
   const { activeWorkspaceId } = useFinTrackTheme();
 
-  // Current Month Selector (Default to current YYYY-MM)
+  // Month navigation
   const now = new Date();
   const currentMonthStr = `${now.getFullYear()}-${String(
     now.getMonth() + 1
   ).padStart(2, '0')}`;
   const [selectedMonthYear, setSelectedMonthYear] =
     useState<string>(currentMonthStr);
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Selected Transaction for Detail / Edit / Delete Modal
   const [selectedTx, setSelectedTx] = useState<TransactionDto | null>(null);
@@ -204,15 +212,65 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     };
   }, [allTransactions, budgetsQuery.data]);
 
-  // Latest 5 Transactions for Recent Spends List
-  const recentSpends = useMemo(() => {
-    return [...allTransactions]
-      .sort(
-        (a, b) =>
-          new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
-      )
-      .slice(0, 5);
-  }, [allTransactions]);
+  // Date-wise Grouping for Recent Transactions with Search
+  const dateGroups = useMemo(() => {
+    let list = allTransactions;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (t) =>
+          t.merchantOrPayee.toLowerCase().includes(q) ||
+          t.description?.toLowerCase().includes(q) ||
+          t.categoryName.toLowerCase().includes(q)
+      );
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86400000);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const groupMap = new Map<
+      string,
+      { dateKey: string; displayHeader: string; dailySpentPaise: number; items: TransactionDto[] }
+    >();
+
+    for (const t of list) {
+      const dateKey = new Date(t.occurredAt).toISOString().slice(0, 10);
+      const prev = groupMap.get(dateKey) || {
+        dateKey,
+        displayHeader: '',
+        dailySpentPaise: 0,
+        items: [],
+      };
+
+      prev.items.push(t);
+      if (t.kind === 'EXPENSE') {
+        prev.dailySpentPaise += Number(t.amountPaise);
+      }
+      groupMap.set(dateKey, prev);
+    }
+
+    return Array.from(groupMap.values())
+      .sort((a, b) => b.dateKey.localeCompare(a.dateKey))
+      .map((g) => {
+        const d = new Date(g.dateKey);
+        const day = d.getDate();
+        const monthShort = MONTH_NAMES[d.getMonth()]?.slice(0, 3) || '';
+
+        let header = `${day} ${monthShort.toUpperCase()}`;
+        if (g.dateKey === todayStr) {
+          header = `TODAY — ${day} ${MONTH_NAMES[d.getMonth()]}`;
+        } else if (g.dateKey === yesterdayStr) {
+          header = `YESTERDAY — ${day} ${MONTH_NAMES[d.getMonth()]}`;
+        }
+
+        return {
+          ...g,
+          displayHeader: header,
+        };
+      });
+  }, [allTransactions, searchQuery]);
 
   const handleScanBill = async () => {
     try {
@@ -264,79 +322,129 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
-      {/* Overview Header Row */}
-      <View style={styles.sectionHeaderRow}>
-        <View>
-          <Text style={styles.sectionOverline}>Personal Finance Overview</Text>
-          <Text style={styles.monthSelectorTitle}>{monthLabel}</Text>
-        </View>
-
-        <View style={styles.monthControls}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handlePrevMonth}
-            style={styles.monthArrowBtn}
-          >
-            <Ionicons name="chevron-back" size={16} color="#0F172A" />
+      {/* 1. Compact Search Bar */}
+      <View style={styles.searchBarBox}>
+        <Ionicons name="search-outline" size={17} color="#94A3B8" />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search transactions, merchants, notes..."
+          placeholderTextColor="#94A3B8"
+          style={styles.searchInput}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Ionicons name="close-circle-outline" size={16} color="#94A3B8" />
           </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={handleNextMonth}
-            style={styles.monthArrowBtn}
-          >
-            <Ionicons name="chevron-forward" size={16} color="#0F172A" />
-          </TouchableOpacity>
-        </View>
+        )}
       </View>
 
-      {/* Reordered: Action Buttons (Scan Bill & Manual Add) ABOVE Overview Card */}
-      <View style={styles.actionRowContainer}>
+      {/* 2. Paytm-Style Horizontal 4-Item Quick Action Row */}
+      <View style={styles.quickActionsCard}>
+        {/* 1. Scan Bill */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={handleScanBill}
           disabled={isScanningBill}
-          style={styles.actionBtnOutline}
+          style={styles.actionCol}
         >
-          {isScanningBill ? (
-            <ActivityIndicator size="small" color="#059669" />
-          ) : (
-            <>
-              <Ionicons name="camera-outline" size={18} color="#059669" />
-              <Text style={styles.actionBtnTextGreen}>Scan Bill</Text>
-            </>
-          )}
+          <View style={[styles.actionCircle, { backgroundColor: '#059669' }]}>
+            {isScanningBill ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="scan-outline" size={22} color="#FFFFFF" />
+            )}
+          </View>
+          <Text style={styles.actionLabel}>Scan Bill</Text>
         </TouchableOpacity>
 
+        {/* 2. Voice Entry */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={onTriggerVoice}
+          style={styles.actionCol}
+        >
+          <View
+            style={[
+              styles.actionCircle,
+              { backgroundColor: isRecordingVoice ? '#DC2626' : '#0F172A' },
+            ]}
+          >
+            <Ionicons name="mic" size={22} color="#FFFFFF" />
+          </View>
+          <Text style={styles.actionLabel}>
+            {isRecordingVoice ? 'Recording' : 'Voice Entry'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* 3. Manual Add */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={() => {
             setPrefillValues(undefined);
             setIsManualModalOpen(true);
           }}
-          style={styles.actionBtnPrimary}
+          style={styles.actionCol}
         >
-          <Ionicons name="add" size={19} color="#FFFFFF" />
-          <Text style={styles.actionBtnTextWhite}>Manual Add</Text>
+          <View style={[styles.actionCircle, { backgroundColor: '#2563EB' }]}>
+            <Ionicons name="add" size={24} color="#FFFFFF" />
+          </View>
+          <Text style={styles.actionLabel}>Manual Add</Text>
+        </TouchableOpacity>
+
+        {/* 4. Khata Ledger */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => onNavigateToTab?.('UDHAAR')}
+          style={styles.actionCol}
+        >
+          <View style={[styles.actionCircle, { backgroundColor: '#0284C7' }]}>
+            <Ionicons name="book-outline" size={20} color="#FFFFFF" />
+          </View>
+          <Text style={styles.actionLabel}>Khata Ledger</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Hero Spending Card */}
+      {/* 3. Total Spending Overview Card */}
       <View style={styles.heroBudgetCard}>
-        <View style={styles.heroTopRow}>
+        {/* Card Header with Month Navigation */}
+        <View style={styles.cardHeaderRow}>
           <View>
-            <Text style={styles.heroSubLabel}>TOTAL SPENDING THIS MONTH</Text>
-            {transactionsQuery.isLoading && allTransactions.length === 0 ? (
-              <ActivityIndicator
-                size="small"
-                color="#059669"
-                style={{ alignSelf: 'flex-start', marginVertical: 8 }}
-              />
-            ) : (
-              <Text style={styles.heroAmountText}>
-                {formatINR(totalExpensePaise)}
-              </Text>
-            )}
+            <Text style={styles.heroSubLabel}>MONTHLY SPENDING</Text>
+            <Text style={styles.monthSelectorTitle}>{monthLabel}</Text>
           </View>
+
+          <View style={styles.monthControls}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handlePrevMonth}
+              style={styles.monthArrowBtn}
+            >
+              <Ionicons name="chevron-back" size={15} color="#0F172A" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleNextMonth}
+              style={styles.monthArrowBtn}
+            >
+              <Ionicons name="chevron-forward" size={15} color="#0F172A" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Amount & Badge */}
+        <View style={styles.heroAmountRow}>
+          {transactionsQuery.isLoading && allTransactions.length === 0 ? (
+            <ActivityIndicator
+              size="small"
+              color="#059669"
+              style={{ alignSelf: 'flex-start', marginVertical: 8 }}
+            />
+          ) : (
+            <Text style={styles.heroAmountText}>
+              {formatINR(totalExpensePaise)}
+            </Text>
+          )}
 
           <View
             style={[
@@ -363,7 +471,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </View>
         </View>
 
-        {/* Clean Horizontal Progress Bar */}
+        {/* Horizontal Progress Bar */}
         <View style={styles.progressBarTrack}>
           <View
             style={[
@@ -379,7 +487,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         {/* Budget Comparison Sub-Row */}
         <View style={styles.budgetStatsRow}>
           <View>
-            <Text style={styles.statLabel}>Total Monthly Budget</Text>
+            <Text style={styles.statLabel}>Total Budget</Text>
             <Text style={styles.statValue}>
               {formatINR(totalBudgetPaise)}
             </Text>
@@ -404,12 +512,12 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         </View>
       </View>
 
-      {/* Recent Spends List (Latest 5 Transactions) - Sits directly below Total Spending Card */}
+      {/* 4. Recent Spends List (Date-Wise) */}
       <View style={styles.recentSectionCard}>
         <View style={styles.recentHeaderRow}>
           <View>
             <Text style={styles.recentSectionTitle}>Recent Transactions</Text>
-            <Text style={styles.recentSectionSubtitle}>Latest spends</Text>
+            <Text style={styles.recentSectionSubtitle}>Latest date-wise spends</Text>
           </View>
 
           <TouchableOpacity
@@ -422,72 +530,88 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {transactionsQuery.isLoading && recentSpends.length === 0 ? (
-          <SkeletonLoader count={3} height={60} />
-        ) : recentSpends.length === 0 ? (
+        {transactionsQuery.isLoading && allTransactions.length === 0 ? (
+          <SkeletonLoader count={3} height={65} />
+        ) : dateGroups.length === 0 ? (
           <EmptyStateCard
-            title="No Recent Transactions"
-            message="Tap the mic below or add a transaction to get started!"
+            title="No Transactions Found"
+            message={
+              searchQuery
+                ? `No transactions matching "${searchQuery}".`
+                : 'Use Quick Actions above to record your first transaction!'
+            }
           />
         ) : (
-          recentSpends.map((item) => {
-            const isInc = item.kind === 'INCOME';
-            const formattedTime = new Date(item.occurredAt).toLocaleTimeString(
-              'en-IN',
-              {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true,
-              }
-            );
+          dateGroups.slice(0, 4).map((group) => (
+            <View key={group.dateKey} style={styles.dateGroupContainer}>
+              {/* Date Header Banner with Daily Total */}
+              <View style={styles.dateGroupHeaderRow}>
+                <Text style={styles.dateGroupTitle}>{group.displayHeader}</Text>
+                <Text style={styles.dailySpentTotalText}>
+                  Spent: -{formatINR(group.dailySpentPaise)}
+                </Text>
+              </View>
 
-            return (
-              <TouchableOpacity
-                key={item.id}
-                activeOpacity={0.7}
-                onPress={() => setSelectedTx(item)}
-                style={styles.transactionRowItem}
-              >
-                <View style={styles.txLeftBlock}>
-                  <View
-                    style={[
-                      styles.categoryCircleBadge,
-                      { backgroundColor: isInc ? '#ECFDF5' : '#F1F5F9' },
-                    ]}
+              {group.items.map((item) => {
+                const isInc = item.kind === 'INCOME';
+                const formattedTime = new Date(item.occurredAt).toLocaleTimeString(
+                  'en-IN',
+                  {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                  }
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedTx(item)}
+                    style={styles.transactionRowItem}
                   >
-                    <Ionicons
-                      name={getCategoryIconName(item.categoryName, isInc)}
-                      size={18}
-                      color={isInc ? '#059669' : '#334155'}
-                    />
-                  </View>
+                    <View style={styles.txLeftBlock}>
+                      <View
+                        style={[
+                          styles.categoryCircleBadge,
+                          { backgroundColor: isInc ? '#ECFDF5' : '#F1F5F9' },
+                        ]}
+                      >
+                        <Ionicons
+                          name={getCategoryIconName(item.categoryName, isInc)}
+                          size={18}
+                          color={isInc ? '#059669' : '#334155'}
+                        />
+                      </View>
 
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.txMerchantName} numberOfLines={1}>
-                      {item.merchantOrPayee}
-                    </Text>
-                    <Text style={styles.txMetaText}>
-                      {item.categoryName} • {formattedTime} •{' '}
-                      {item.paymentVia || 'UPI'}
-                    </Text>
-                  </View>
-                </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.txMerchantName} numberOfLines={1}>
+                          {item.merchantOrPayee}
+                        </Text>
+                        <Text style={styles.txMetaText}>
+                          {item.categoryName} • {formattedTime} •{' '}
+                          {item.paymentVia || 'UPI'}
+                        </Text>
+                      </View>
+                    </View>
 
-                <View style={styles.txRightBlock}>
-                  <Text
-                    style={[
-                      styles.txAmountText,
-                      { color: isInc ? '#059669' : '#0F172A' },
-                    ]}
-                  >
-                    {isInc ? '+' : '-'}
-                    {formatINR(item.amountPaise)}
-                  </Text>
-                  <Text style={styles.tapToEditHint}>Tap to view/edit</Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })
+                    <View style={styles.txRightBlock}>
+                      <Text
+                        style={[
+                          styles.txAmountText,
+                          { color: isInc ? '#059669' : '#0F172A' },
+                        ]}
+                      >
+                        {isInc ? '+' : '-'}
+                        {formatINR(item.amountPaise)}
+                      </Text>
+                      <Text style={styles.tapToEditHint}>Tap to view/edit</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))
         )}
       </View>
 
@@ -523,78 +647,130 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 110,
+    paddingBottom: 40,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionOverline: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  monthSelectorTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A',
-    fontFamily: SYSTEM_FONT_STACK,
-  },
-  monthControls: {
+  searchBarBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  monthArrowBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 12,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0F172A',
+    padding: 0,
+  },
+  quickActionsCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  actionCol: {
     alignItems: 'center',
     justifyContent: 'center',
+    flex: 1,
+  },
+  actionCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
   },
   heroBudgetCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
+    borderRadius: 18,
+    padding: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.04,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 2,
   },
-  heroTopRow: {
+  cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   heroSubLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: '#64748B',
     letterSpacing: 0.8,
   },
+  monthSelectorTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    fontFamily: SYSTEM_FONT_STACK,
+    marginTop: 2,
+  },
+  monthControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  monthArrowBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   heroAmountText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
     color: '#0F172A',
-    marginTop: 4,
     fontFamily: SYSTEM_FONT_STACK,
   },
   budgetBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   badgeNormal: {
     backgroundColor: '#ECFDF5',
@@ -606,7 +782,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   budgetBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
   },
   badgeTextNormal: {
@@ -619,15 +795,15 @@ const styles = StyleSheet.create({
     color: '#DC2626',
   },
   progressBarTrack: {
-    height: 10,
+    height: 8,
     backgroundColor: '#F1F5F9',
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   budgetStatsRow: {
     flexDirection: 'row',
@@ -642,47 +818,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   statValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     color: '#0F172A',
     marginTop: 2,
-  },
-  actionRowContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  actionBtnOutline: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1.2,
-    borderColor: '#A7F3D0',
-  },
-  actionBtnTextGreen: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#059669',
-  },
-  actionBtnPrimary: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: '#0F172A',
-  },
-  actionBtnTextWhite: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
   recentSectionCard: {
     backgroundColor: '#FFFFFF',
@@ -695,7 +834,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F8FAFC',
@@ -720,13 +859,36 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#059669',
   },
+  dateGroupContainer: {
+    marginBottom: 14,
+  },
+  dateGroupHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 4,
+  },
+  dateGroupTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
+  },
+  dailySpentTotalText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
   transactionRowItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: '#F8FAFC',
   },
   txLeftBlock: {
     flexDirection: 'row',
@@ -736,14 +898,14 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   categoryCircleBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   txMerchantName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -756,13 +918,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   txAmountText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     fontFamily: SYSTEM_FONT_STACK,
   },
   tapToEditHint: {
     fontSize: 9,
     color: '#94A3B8',
-    marginTop: 2,
+    marginTop: 1,
   },
 });

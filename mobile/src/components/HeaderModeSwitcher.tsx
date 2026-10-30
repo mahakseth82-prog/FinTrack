@@ -4,12 +4,12 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Platform,
+  Alert,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { SYSTEM_FONT_STACK } from '../theme/colors';
+import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 import { LanguagePreferenceModal } from './LanguagePreferenceModal';
 
 function toTitleCase(name: string): string {
@@ -24,92 +24,115 @@ function toTitleCase(name: string): string {
     .join(' ');
 }
 
+function getUserInitials(name?: string): string {
+  if (!name || !name.trim()) return 'MS';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 export const HeaderModeSwitcher: React.FC = () => {
-  const { mode, palette, setMode } = useFinTrackTheme();
+  const { mode, setMode } = useFinTrackTheme();
   const { user, signOut } = useAuth();
-  const insets = useSafeAreaInsets();
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
 
-  const formattedUserName = toTitleCase(user?.fullName || 'Account Holder');
-  const topSafePadding = Math.max(insets.top, Platform.OS === 'android' ? 28 : 12) + 6;
+  const formattedUserName = toTitleCase(user?.fullName || 'Mahak');
+  const userInitials = getUserInitials(user?.fullName || 'Mahak');
+
+  const handleSettingsPress = () => {
+    Alert.alert(
+      'Account Settings',
+      `Signed in as ${user?.fullName || 'Mahak'} (${user?.preferredLanguage === 'hi' ? 'Hindi' : 'English'})`,
+      [
+        {
+          text: 'Change Language',
+          onPress: () => setIsLangModalOpen(true),
+        },
+        {
+          text: 'Switch / Sign Out',
+          style: 'destructive',
+          onPress: signOut,
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
 
   return (
-    <View style={[styles.headerContainer, { paddingTop: topSafePadding }]}>
-      {/* Top Row: Brand Title + Clean Title-Case User Name + Language Switcher + Switch User */}
-      <View style={styles.brandRow}>
-        <View>
-          <Text style={styles.brandName}>FinTrack</Text>
-          <Text style={styles.subtitle}>{formattedUserName}</Text>
+    <View style={styles.headerContainer}>
+      {/* Left: Paytm-style Profile Avatar Circle + User First Name */}
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onPress={handleSettingsPress}
+        style={styles.profileLeftBlock}
+      >
+        <View style={styles.avatarCircle}>
+          <Text style={styles.avatarInitials}>{userInitials}</Text>
         </View>
+        <View style={styles.profileNameBox}>
+          <Text style={styles.userNameText} numberOfLines={1}>
+            {formattedUserName}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
-        <View style={styles.rightActionsRow}>
-          {/* Quick Language Toggle Pill */}
+      {/* Center: Brand Name + Compact [ Personal | Business ] Segmented Pill */}
+      <View style={styles.centerPillContainer}>
+        <View style={styles.compactSegmentedPill}>
           <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => setIsLangModalOpen(true)}
-            style={styles.langPill}
+            activeOpacity={0.85}
+            onPress={() => setMode('PERSONAL')}
+            style={[
+              styles.compactSegmentBtn,
+              mode === 'PERSONAL' && styles.compactSegmentBtnActive,
+            ]}
           >
-            <Text style={styles.langPillText}>
-              {user?.preferredLanguage === 'hi' ? 'Language: HI' : 'Language: EN'}
+            <Text
+              style={[
+                styles.compactSegmentText,
+                mode === 'PERSONAL' && styles.compactSegmentTextActive,
+              ]}
+            >
+              Personal
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={signOut}
-            style={styles.switchUserControl}
+            activeOpacity={0.85}
+            onPress={() => setMode('BUSINESS')}
+            style={[
+              styles.compactSegmentBtn,
+              mode === 'BUSINESS' && styles.compactSegmentBtnActive,
+            ]}
           >
-            <Text style={styles.switchUserText}>Switch User</Text>
+            <Text
+              style={[
+                styles.compactSegmentText,
+                mode === 'BUSINESS' && styles.compactSegmentTextActive,
+              ]}
+            >
+              Business
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Sleek Minimalist Segmented Workspace Control: [ Personal | Business ] */}
-      <View style={styles.segmentedTrack}>
+      {/* Right: Clean Text Button "Language" + Bell / Settings Icon */}
+      <View style={styles.rightActionsRow}>
         <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => setMode('PERSONAL')}
-          style={[
-            styles.segmentItem,
-            mode === 'PERSONAL' && [
-              styles.segmentItemActive,
-              { backgroundColor: palette.primaryBrown },
-            ],
-          ]}
+          activeOpacity={0.8}
+          onPress={() => setIsLangModalOpen(true)}
+          style={styles.langBtn}
         >
-          <Text
-            style={[
-              styles.segmentLabel,
-              {
-                color: mode === 'PERSONAL' ? '#FFFFFF' : '#64748B',
-              },
-            ]}
-          >
-            Personal
-          </Text>
+          <Text style={styles.langBtnText}>Language</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => setMode('BUSINESS')}
-          style={[
-            styles.segmentItem,
-            mode === 'BUSINESS' && [
-              styles.segmentItemActive,
-              { backgroundColor: palette.primaryBrown },
-            ],
-          ]}
+          activeOpacity={0.7}
+          onPress={handleSettingsPress}
+          style={styles.bellIconBtn}
         >
-          <Text
-            style={[
-              styles.segmentLabel,
-              {
-                color: mode === 'BUSINESS' ? '#FFFFFF' : '#64748B',
-              },
-            ]}
-          >
-            Business
-          </Text>
+          <Ionicons name="notifications-outline" size={20} color="#0F172A" />
         </TouchableOpacity>
       </View>
 
@@ -126,84 +149,102 @@ const styles = StyleSheet.create({
   headerContainer: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  brandRow: {
+    borderBottomColor: '#F1F5F9',
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'space-between',
+  },
+  profileLeftBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  avatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FCE7F3',
+    borderWidth: 1.5,
+    borderColor: '#FBCFE8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#BE185D',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  profileNameBox: {
+    justifyContent: 'center',
+  },
+  userNameText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  centerPillContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compactSegmentedPill: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 20,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  compactSegmentBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  compactSegmentBtnActive: {
+    backgroundColor: EMERALD_THEME.emeraldGreen,
+  },
+  compactSegmentText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  compactSegmentTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   rightActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 8,
-  },
-  brandName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-    fontFamily: SYSTEM_FONT_STACK,
-    letterSpacing: -0.3,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#334155',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  langPill: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  langPillText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
-  },
-  switchUserControl: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  switchUserText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  segmentedTrack: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 10,
-    padding: 3,
-  },
-  segmentItem: {
     flex: 1,
-    paddingVertical: 7,
+  },
+  langBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  langBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  bellIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
-  },
-  segmentItemActive: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  segmentLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    fontFamily: SYSTEM_FONT_STACK,
   },
 });
