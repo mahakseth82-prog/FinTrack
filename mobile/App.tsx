@@ -64,7 +64,7 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ThemeProvider>
-            <StatusBar style="dark" backgroundColor="#FFFFFF" />
+            <StatusBar style="dark" />
             <RootNavigator />
           </ThemeProvider>
         </AuthProvider>

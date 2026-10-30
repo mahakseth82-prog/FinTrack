@@ -5,12 +5,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#FAF6F0",
-    "primaryColor": "#6F4E37",
+    "backgroundColor": "#F8FAFC",
     "android": {
       "package": "com.fintrack.app",
       "adaptiveIcon": {
-        "backgroundColor": "#FAF6F0"
+        "backgroundColor": "#F8FAFC"
       },
       "permissions": [
         "RECORD_AUDIO",
