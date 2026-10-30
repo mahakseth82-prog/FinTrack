@@ -7,20 +7,76 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
-import { MinimalIcon } from '../components/MinimalIcon';
-import { useTransactions } from '../hooks/useFinTrackQueries';
+import { useTransactions, useScanBillOcr } from '../hooks/useFinTrackQueries';
 import { TransactionDto } from '../types/ledger';
 import { formatINR } from '../utils/paise';
 import { SkeletonLoader, EmptyStateCard } from '../components/QueryStateViews';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
+import { ManualTransactionModal } from '../components/ManualTransactionModal';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
+
+function getCategoryIconName(categoryName: string, isIncome: boolean): keyof typeof Ionicons.glyphMap {
+  if (isIncome) return 'arrow-down-circle-outline';
+  const cat = (categoryName || '').toLowerCase();
+  if (
+    cat.includes('food') ||
+    cat.includes('chai') ||
+    cat.includes('dining') ||
+    cat.includes('restaurant') ||
+    cat.includes('dinner') ||
+    cat.includes('snack')
+  ) {
+    return 'restaurant-outline';
+  }
+  if (
+    cat.includes('travel') ||
+    cat.includes('petrol') ||
+    cat.includes('fuel') ||
+    cat.includes('transport') ||
+    cat.includes('auto') ||
+    cat.includes('metro')
+  ) {
+    return 'car-outline';
+  }
+  if (
+    cat.includes('grocery') ||
+    cat.includes('rashan') ||
+    cat.includes('supermarket') ||
+    cat.includes('dmart') ||
+    cat.includes('dairy') ||
+    cat.includes('milk')
+  ) {
+    return 'basket-outline';
+  }
+  if (
+    cat.includes('cloth') ||
+    cat.includes('shopping') ||
+    cat.includes('kapde') ||
+    cat.includes('myntra') ||
+    cat.includes('amazon')
+  ) {
+    return 'shirt-outline';
+  }
+  if (
+    cat.includes('bill') ||
+    cat.includes('recharge') ||
+    cat.includes('electric') ||
+    cat.includes('utility')
+  ) {
+    return 'receipt-outline';
+  }
+  return 'wallet-outline';
+}
 
 export const TransactionsScreen: React.FC = () => {
   const { activeWorkspaceId } = useFinTrackTheme();
@@ -31,6 +87,18 @@ export const TransactionsScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL');
   const [selectedTx, setSelectedTx] = useState<TransactionDto | null>(null);
+
+  // Manual Add & Scan Bill State
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [prefillValues, setPrefillValues] = useState<{
+    amountRupees?: number;
+    merchantOrPayee?: string;
+    categoryName?: string;
+    kind?: 'EXPENSE' | 'INCOME';
+  } | undefined>(undefined);
+  const [isScanningBill, setIsScanningBill] = useState(false);
+
+  const scanBillMutation = useScanBillOcr(activeWorkspaceId);
 
   const [yearNum, monthNum] = selectedMonthYear.split('-').map(Number);
   const monthLabel = `${MONTH_NAMES[monthNum - 1]} ${yearNum}`;
@@ -84,7 +152,8 @@ export const TransactionsScreen: React.FC = () => {
 
     if (selectedCategoryFilter !== 'ALL') {
       list = list.filter(
-        (t: TransactionDto) => t.categoryName.toLowerCase() === selectedCategoryFilter.toLowerCase()
+        (t: TransactionDto) =>
+          t.categoryName.toLowerCase() === selectedCategoryFilter.toLowerCase()
       );
     }
 
@@ -92,11 +161,18 @@ export const TransactionsScreen: React.FC = () => {
     const yesterday = new Date(Date.now() - 86400000);
     const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
-    const groupMap = new Map<string, { dateKey: string; dailySpentPaise: number; items: TransactionDto[] }>();
+    const groupMap = new Map<
+      string,
+      { dateKey: string; dailySpentPaise: number; items: TransactionDto[] }
+    >();
 
     for (const t of list) {
       const dateKey = new Date(t.occurredAt).toISOString().slice(0, 10);
-      const prev = groupMap.get(dateKey) || { dateKey, dailySpentPaise: 0, items: [] };
+      const prev = groupMap.get(dateKey) || {
+        dateKey,
+        dailySpentPaise: 0,
+        items: [],
+      };
       prev.items.push(t);
       if (t.kind === 'EXPENSE') {
         prev.dailySpentPaise += Number(t.amountPaise);
@@ -127,6 +203,50 @@ export const TransactionsScreen: React.FC = () => {
       });
   }, [transactions, searchQuery, selectedCategoryFilter]);
 
+  const handleScanBill = async () => {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      const res = perm.granted
+        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
+        : await ImagePicker.launchImageLibraryAsync({
+            base64: true,
+            quality: 0.7,
+          });
+
+      if (res.canceled || !res.assets?.[0]?.base64) return;
+
+      setIsScanningBill(true);
+      const ocrResult = await scanBillMutation.mutateAsync({
+        imageBase64: res.assets[0].base64,
+        mimeType: res.assets[0].mimeType || 'image/jpeg',
+      });
+      setIsScanningBill(false);
+
+      if (ocrResult?.draft) {
+        setPrefillValues({
+          amountRupees: ocrResult.draft.extractedAmountRupees || undefined,
+          merchantOrPayee:
+            ocrResult.draft.extractedContactName ||
+            ocrResult.draft.normalizedTitle ||
+            '',
+          categoryName:
+            ocrResult.draft.extractedCategoryName || 'Bills & Utilities',
+          kind: 'EXPENSE',
+        });
+        setIsManualModalOpen(true);
+      } else {
+        Alert.alert(
+          'Bill Scanned',
+          'Receipt scanned and entry added to pending ledger!'
+        );
+      }
+    } catch (err: unknown) {
+      setIsScanningBill(false);
+      const msg = err instanceof Error ? err.message : 'Failed to scan bill';
+      Alert.alert('Scan Failed', msg);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Month Header */}
@@ -137,18 +257,57 @@ export const TransactionsScreen: React.FC = () => {
         </View>
 
         <View style={styles.monthControls}>
-          <TouchableOpacity activeOpacity={0.7} onPress={handlePrevMonth} style={styles.monthArrowBtn}>
-            <MinimalIcon name="chevron-left" size={14} color="#0F172A" />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handlePrevMonth}
+            style={styles.monthArrowBtn}
+          >
+            <Ionicons name="chevron-back" size={16} color="#0F172A" />
           </TouchableOpacity>
-          <TouchableOpacity activeOpacity={0.7} onPress={handleNextMonth} style={styles.monthArrowBtn}>
-            <MinimalIcon name="chevron-right" size={14} color="#0F172A" />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={handleNextMonth}
+            style={styles.monthArrowBtn}
+          >
+            <Ionicons name="chevron-forward" size={16} color="#0F172A" />
           </TouchableOpacity>
         </View>
       </View>
 
+      {/* Top Action Buttons: [ 📷 Scan Bill ] & [ ＋ Manual Add ] */}
+      <View style={styles.topActionsRow}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleScanBill}
+          disabled={isScanningBill}
+          style={styles.actionBtnOutline}
+        >
+          {isScanningBill ? (
+            <ActivityIndicator size="small" color="#059669" />
+          ) : (
+            <>
+              <Ionicons name="camera-outline" size={17} color="#059669" />
+              <Text style={styles.actionBtnTextGreen}>Scan Bill</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => {
+            setPrefillValues(undefined);
+            setIsManualModalOpen(true);
+          }}
+          style={styles.actionBtnPrimary}
+        >
+          <Ionicons name="add" size={18} color="#FFFFFF" />
+          <Text style={styles.actionBtnTextWhite}>Manual Add</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Search Bar */}
       <View style={styles.searchBarBox}>
-        <MinimalIcon name="search" size={16} color="#94A3B8" />
+        <Ionicons name="search-outline" size={16} color="#94A3B8" />
         <TextInput
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -158,42 +317,53 @@ export const TransactionsScreen: React.FC = () => {
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <MinimalIcon name="close" size={14} color="#94A3B8" />
+            <Ionicons name="close-circle-outline" size={16} color="#94A3B8" />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Category Pills */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterPillsScroll}
-      >
-        {availableCategories.map((cat) => {
-          const isSelected = selectedCategoryFilter.toLowerCase() === cat.toLowerCase();
-          return (
-            <TouchableOpacity
-              key={cat}
-              activeOpacity={0.8}
-              onPress={() => setSelectedCategoryFilter(cat)}
-              style={[
-                styles.filterPill,
-                isSelected && {
-                  backgroundColor: EMERALD_THEME.emeraldGreen,
-                  borderColor: EMERALD_THEME.emeraldGreen,
-                },
-              ]}
-            >
-              <Text style={[styles.filterPillText, isSelected && { color: '#FFFFFF', fontWeight: '700' }]}>
-                {cat === 'ALL' ? 'All' : cat}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {/* Category Filter Pills (Fixed padding, line-height, and height to prevent text clipping) */}
+      <View style={styles.filterPillsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterPillsScroll}
+        >
+          {availableCategories.map((cat) => {
+            const isSelected =
+              selectedCategoryFilter.toLowerCase() === cat.toLowerCase();
+            return (
+              <TouchableOpacity
+                key={cat}
+                activeOpacity={0.8}
+                onPress={() => setSelectedCategoryFilter(cat)}
+                style={[
+                  styles.filterPill,
+                  isSelected && {
+                    backgroundColor: EMERALD_THEME.emeraldGreen,
+                    borderColor: EMERALD_THEME.emeraldGreen,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    isSelected && { color: '#FFFFFF', fontWeight: '700' },
+                  ]}
+                >
+                  {cat === 'ALL' ? 'All' : cat}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {/* Transactions List */}
-      <ScrollView contentContainerStyle={styles.scrollList} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollList}
+        showsVerticalScrollIndicator={false}
+      >
         {isLoading && transactions.length === 0 ? (
           <SkeletonLoader count={4} height={70} />
         ) : dateGroups.length === 0 ? (
@@ -210,16 +380,21 @@ export const TransactionsScreen: React.FC = () => {
             <View key={group.dateKey} style={styles.dateGroupContainer}>
               <View style={styles.dateGroupHeaderRow}>
                 <Text style={styles.dateGroupTitle}>{group.displayHeader}</Text>
-                <Text style={styles.dailySpentTotalText}>Spent: -{formatINR(group.dailySpentPaise)}</Text>
+                <Text style={styles.dailySpentTotalText}>
+                  Spent: -{formatINR(group.dailySpentPaise)}
+                </Text>
               </View>
 
               {group.items.map((item) => {
                 const isInc = item.kind === 'INCOME';
-                const formattedTime = new Date(item.occurredAt).toLocaleTimeString('en-IN', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: true,
-                });
+                const formattedTime = new Date(item.occurredAt).toLocaleTimeString(
+                  'en-IN',
+                  {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                  }
+                );
 
                 return (
                   <TouchableOpacity
@@ -229,22 +404,17 @@ export const TransactionsScreen: React.FC = () => {
                     style={styles.transactionRowItem}
                   >
                     <View style={styles.txLeftBlock}>
+                      {/* Standard, reliable Ionicons vector icon badge */}
                       <View
                         style={[
                           styles.categoryCircleBadge,
                           { backgroundColor: isInc ? '#ECFDF5' : '#F1F5F9' },
                         ]}
                       >
-                        <MinimalIcon
-                          name={
-                            item.categoryName.toLowerCase().includes('petrol')
-                              ? 'travel'
-                              : item.categoryName.toLowerCase().includes('grocery')
-                              ? 'grocery'
-                              : 'food'
-                          }
-                          size={16}
-                          color={isInc ? '#059669' : '#0F172A'}
+                        <Ionicons
+                          name={getCategoryIconName(item.categoryName, isInc)}
+                          size={18}
+                          color={isInc ? '#059669' : '#334155'}
                         />
                       </View>
 
@@ -253,7 +423,8 @@ export const TransactionsScreen: React.FC = () => {
                           {item.merchantOrPayee}
                         </Text>
                         <Text style={styles.txMetaText}>
-                          {item.categoryName} • {formattedTime} • {item.paymentVia || 'UPI'}
+                          {item.categoryName} • {formattedTime} •{' '}
+                          {item.paymentVia || 'UPI'}
                         </Text>
                       </View>
                     </View>
@@ -265,9 +436,12 @@ export const TransactionsScreen: React.FC = () => {
                           { color: isInc ? '#059669' : '#0F172A' },
                         ]}
                       >
-                        {isInc ? '+' : '-'}{formatINR(item.amountPaise)}
+                        {isInc ? '+' : '-'}
+                        {formatINR(item.amountPaise)}
                       </Text>
-                      <Text style={styles.tapToEditHint}>Tap to edit / delete</Text>
+                      <Text style={styles.tapToEditHint}>
+                        Tap to edit / delete
+                      </Text>
                     </View>
                   </TouchableOpacity>
                 );
@@ -277,12 +451,23 @@ export const TransactionsScreen: React.FC = () => {
         )}
       </ScrollView>
 
-      {/* Transaction Detail Modal */}
-      <TransactionDetailModal
-        visible={Boolean(selectedTx)}
-        transaction={selectedTx}
-        onClose={() => setSelectedTx(null)}
-        workspaceId={activeWorkspaceId}
+      {/* Transaction Detail, Edit & Delete Modal */}
+      {selectedTx && (
+        <TransactionDetailModal
+          visible={Boolean(selectedTx)}
+          transaction={selectedTx}
+          onClose={() => setSelectedTx(null)}
+        />
+      )}
+
+      {/* Manual Entry Modal */}
+      <ManualTransactionModal
+        visible={isManualModalOpen}
+        onClose={() => {
+          setIsManualModalOpen(false);
+          setPrefillValues(undefined);
+        }}
+        initialValues={prefillValues}
       />
     </View>
   );
@@ -293,7 +478,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 8,
   },
   monthHeaderRow: {
     flexDirection: 'row',
@@ -303,10 +488,10 @@ const styles = StyleSheet.create({
   },
   screenLabel: {
     fontSize: 11,
+    fontWeight: '800',
     color: '#64748B',
-    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   monthSelectorTitle: {
     fontSize: 20,
@@ -316,6 +501,7 @@ const styles = StyleSheet.create({
   },
   monthControls: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   monthArrowBtn: {
@@ -328,6 +514,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  topActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  actionBtnOutline: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.2,
+    borderColor: '#A7F3D0',
+  },
+  actionBtnTextGreen: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  actionBtnPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+  },
+  actionBtnTextWhite: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
   searchBarBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -336,7 +559,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 42,
     marginBottom: 10,
     gap: 8,
   },
@@ -346,22 +569,33 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     padding: 0,
   },
+  filterPillsContainer: {
+    marginBottom: 12,
+  },
   filterPillsScroll: {
-    paddingBottom: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
     gap: 8,
+    minHeight: 46,
+    alignItems: 'center',
   },
   filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterPillText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     color: '#475569',
+    lineHeight: 18,
+    includeFontPadding: false,
   },
   scrollList: {
     paddingBottom: 100,
@@ -370,7 +604,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -379,7 +613,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F8FAFC',
     marginBottom: 6,
@@ -407,13 +641,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 10,
+    gap: 12,
     marginRight: 10,
   },
   categoryCircleBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -125,6 +125,7 @@ export function useCreateTransaction(workspaceId: string | null) {
         body: payload,
       }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary', workspaceId] });
       queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
     },

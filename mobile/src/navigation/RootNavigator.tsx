@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Platform,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -15,6 +15,7 @@ import {
   useParseVoiceDraft,
 } from '../hooks/useFinTrackQueries';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
+import { Ionicons } from '@expo/vector-icons';
 import { MinimalIcon } from '../components/MinimalIcon';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
 import { LanguagePreferenceModal } from '../components/LanguagePreferenceModal';
@@ -429,7 +430,7 @@ export const RootNavigator: React.FC = () => {
                 },
               ]}
             >
-              <MinimalIcon name="mic" size={22} color="#FFFFFF" />
+              <Ionicons name="mic" size={24} color="#FFFFFF" />
             </Animated.View>
           </TouchableOpacity>
         )}
@@ -443,9 +444,9 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('HOME')}
               style={styles.tabItem}
             >
-              <MinimalIcon
-                name="home"
-                size={18}
+              <Ionicons
+                name={activeTab === 'HOME' ? 'home' : 'home-outline'}
+                size={20}
                 color={activeTab === 'HOME' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -467,9 +468,9 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('TRANSACTIONS')}
               style={styles.tabItem}
             >
-              <MinimalIcon
-                name="transactions"
-                size={18}
+              <Ionicons
+                name={activeTab === 'TRANSACTIONS' ? 'receipt' : 'receipt-outline'}
+                size={20}
                 color={activeTab === 'TRANSACTIONS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -491,9 +492,9 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('INSIGHTS')}
               style={styles.tabItem}
             >
-              <MinimalIcon
-                name="insights"
-                size={18}
+              <Ionicons
+                name={activeTab === 'INSIGHTS' ? 'bar-chart' : 'bar-chart-outline'}
+                size={20}
                 color={activeTab === 'INSIGHTS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -515,9 +516,9 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('UDHAAR')}
               style={styles.tabItem}
             >
-              <MinimalIcon
-                name="ledger"
-                size={18}
+              <Ionicons
+                name={activeTab === 'UDHAAR' ? 'book' : 'book-outline'}
+                size={20}
                 color={activeTab === 'UDHAAR' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text
@@ -539,9 +540,9 @@ export const RootNavigator: React.FC = () => {
               onPress={() => setActiveTab('PROFILE')}
               style={styles.tabItem}
             >
-              <MinimalIcon
-                name="profile"
-                size={18}
+              <Ionicons
+                name={activeTab === 'PROFILE' ? 'person' : 'person-outline'}
+                size={20}
                 color={activeTab === 'PROFILE' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
               />
               <Text

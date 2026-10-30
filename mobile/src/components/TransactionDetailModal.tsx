@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { MinimalIcon } from './MinimalIcon';
+import { Ionicons } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useDeleteTransaction, useUpdateTransaction } from '../hooks/useFinTrackQueries';
 import { TransactionDto, PaymentChannel } from '../types/ledger';
@@ -20,18 +20,19 @@ interface TransactionDetailModalProps {
   visible: boolean;
   transaction: TransactionDto | null;
   onClose: () => void;
-  workspaceId: string | null;
+  workspaceId?: string | null;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   visible,
   transaction,
   onClose,
-  workspaceId,
+  workspaceId: propWorkspaceId,
 }) => {
-  const { palette } = useFinTrackTheme();
-  const deleteMutation = useDeleteTransaction(workspaceId);
-  const updateMutation = useUpdateTransaction(workspaceId);
+  const { palette, activeWorkspaceId } = useFinTrackTheme();
+  const effectiveWorkspaceId = propWorkspaceId ?? activeWorkspaceId;
+  const deleteMutation = useDeleteTransaction(effectiveWorkspaceId);
+  const updateMutation = useUpdateTransaction(effectiveWorkspaceId);
 
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -112,7 +113,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           <View style={styles.headerRow}>
             <View style={styles.titleInfo}>
               <View style={[styles.iconCircle, { backgroundColor: '#ECFDF5' }]}>
-                <MinimalIcon name="food" size={20} color="#059669" />
+                <Ionicons name="receipt-outline" size={20} color="#059669" />
               </View>
               <View>
                 <Text style={styles.modalHeading}>{isEditing ? 'Edit Transaction' : 'Transaction Details'}</Text>
@@ -123,7 +124,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             </View>
 
             <TouchableOpacity activeOpacity={0.8} onPress={onClose} style={styles.closeBtn}>
-              <MinimalIcon name="close" size={16} color="#64748B" />
+              <Ionicons name="close" size={18} color="#64748B" />
             </TouchableOpacity>
           </View>
 
@@ -277,17 +278,17 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                     onPress={() => setShowDeleteConfirm(true)}
                     style={styles.deleteActionBtn}
                   >
-                    <MinimalIcon name="trash" size={16} color="#DC2626" />
+                    <Ionicons name="trash-outline" size={16} color="#DC2626" />
                     <Text style={styles.deleteActionText}>Delete</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => setIsEditing(true)}
-                    style={[styles.editActionBtn, { borderColor: palette.primaryBrown }]}
+                    style={[styles.editActionBtn, { borderColor: '#059669' }]}
                   >
-                    <MinimalIcon name="edit" size={16} color={palette.primaryBrown} />
-                    <Text style={[styles.editActionText, { color: palette.primaryBrown }]}>Edit</Text>
+                    <Ionicons name="pencil-outline" size={16} color="#059669" />
+                    <Text style={[styles.editActionText, { color: '#059669' }]}>Edit</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -552,3 +553,4 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 });
+

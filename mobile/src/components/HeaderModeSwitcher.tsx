@@ -4,7 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { SYSTEM_FONT_STACK } from '../theme/colors';
@@ -25,12 +27,14 @@ function toTitleCase(name: string): string {
 export const HeaderModeSwitcher: React.FC = () => {
   const { mode, palette, setMode } = useFinTrackTheme();
   const { user, signOut } = useAuth();
+  const insets = useSafeAreaInsets();
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
 
   const formattedUserName = toTitleCase(user?.fullName || 'Account Holder');
+  const topSafePadding = Math.max(insets.top, Platform.OS === 'android' ? 28 : 12) + 6;
 
   return (
-    <View style={styles.headerContainer}>
+    <View style={[styles.headerContainer, { paddingTop: topSafePadding }]}>
       {/* Top Row: Brand Title + Clean Title-Case User Name + Language Switcher + Switch User */}
       <View style={styles.brandRow}>
         <View>
