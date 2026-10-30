@@ -62,6 +62,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   const [currentDraft, setCurrentDraft] = useState<IngestionDraftDto | null>(
     initialDraft
   );
+  const [selectedLang, setSelectedLang] = useState<'en-IN' | 'hi-IN'>('en-IN');
   const [utteranceInput, setUtteranceInput] = useState('');
   const [clarificationInput, setClarificationInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -90,7 +91,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
     } else if (!visible) {
       void stopMicRecording();
     }
-  }, [visible, initialDraft]);
+  }, [visible, initialDraft, selectedLang]);
 
   useEffect(() => {
     if (!isRecording && !parseVoiceMutation.isPending) {
@@ -216,7 +217,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
       if (SpeechRecognition) {
         try {
           const recognition = new SpeechRecognition();
-          recognition.lang = 'hi-IN'; // Understands Hindi, Hinglish & English
+          recognition.lang = selectedLang; // 'en-IN' (Hinglish/English) or 'hi-IN' (Hindi)
           recognition.continuous = false;
           recognition.interimResults = true;
 
@@ -227,13 +228,13 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
           recognition.onresult = (event: any) => {
             let transcript = '';
             for (let i = 0; i < event.results.length; i++) {
-              transcript += event.results[i][0].transcript;
+              transcript += (event.results[i][0].transcript || '') + ' ';
             }
-            const trimmed = transcript.trim();
+            const trimmed = transcript.replace(/\s+/g, ' ').trim();
             latestTranscriptRef.current = trimmed;
             setUtteranceInput(trimmed);
 
-            // Silence auto-stop: When you finish speaking, auto-stop and fetch data after 1.2s silence
+            // Silence auto-stop: Give the user 2.2 seconds of natural pause before auto-saving
             if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current);
             }
@@ -245,7 +246,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                   // ignore
                 }
               }
-            }, 1200);
+            }, 2200);
           };
 
           recognition.onerror = (event: any) => {
@@ -432,9 +433,9 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
           {/* Clean Header */}
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.sheetTitle}>Quick Voice / Text Entry</Text>
+              <Text style={styles.sheetTitle}>Voice Assistant</Text>
               <Text style={styles.sheetSubtitle}>
-                Speak or type — saves directly to Passbook
+                Speak naturally in Hinglish, English, or Hindi
               </Text>
             </View>
 
@@ -443,6 +444,42 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
               style={styles.closeBtn}
             >
               <Text style={styles.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Language Switcher Segmented Control */}
+          <View style={styles.langSwitchRow}>
+            <TouchableOpacity
+              onPress={() => setSelectedLang('en-IN')}
+              style={[
+                styles.langPill,
+                selectedLang === 'en-IN' && styles.langPillActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.langPillText,
+                  selectedLang === 'en-IN' && styles.langPillTextActive,
+                ]}
+              >
+                🇮🇳 Hinglish / English
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setSelectedLang('hi-IN')}
+              style={[
+                styles.langPill,
+                selectedLang === 'hi-IN' && styles.langPillActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.langPillText,
+                  selectedLang === 'hi-IN' && styles.langPillTextActive,
+                ]}
+              >
+                हिंदी Hindi
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -465,7 +502,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                       style={[
                         styles.waveBar,
                         {
-                          backgroundColor: isRecording ? '#B91C1C' : '#0F172A',
+                          backgroundColor: isRecording ? '#4338CA' : '#0F172A',
                           transform: [
                             {
                               scaleY: Animated.multiply(waveAnim, mult),
@@ -480,13 +517,13 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                 <Text style={styles.micStatusText}>
                   {isBusy
                     ? 'Saving entry to transactions...'
-                    : 'Listening... Speak now (Hindi / Hinglish / English)'}
+                    : `Listening in ${selectedLang === 'en-IN' ? 'Hinglish / English' : 'Hindi'}... Speak now`}
                 </Text>
 
                 {/* Live Heard Spoken Words Box */}
                 {utteranceInput ? (
                   <View style={styles.liveHeardBox}>
-                    <Text style={styles.liveHeardLabel}>HEARD:</Text>
+                    <Text style={styles.liveHeardLabel}>HEARD SO FAR:</Text>
                     <Text style={styles.liveHeardText}>&ldquo;{utteranceInput}&rdquo;</Text>
                   </View>
                 ) : (
@@ -495,8 +532,21 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                   </Text>
                 )}
 
+                {/* Direct Action Button: Done Speaking — Save Now */}
+                {isRecording && utteranceInput.trim().length > 0 && (
+                  <TouchableOpacity
+                    onPress={stopMicRecording}
+                    disabled={isBusy}
+                    style={styles.doneBtn}
+                  >
+                    <Text style={styles.doneBtnText}>
+                      ⏹ Done Speaking — Save Now
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
                 <Text style={styles.autoSaveNotice}>
-                  FinTrack automatically saves when you finish speaking
+                  Auto-saves automatically when you pause speaking
                 </Text>
               </View>
 
@@ -613,7 +663,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 10,
+  },
+  langSwitchRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 14,
+  },
+  langPill: {
+    flex: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  langPillActive: {
+    backgroundColor: '#4338CA',
+    borderColor: '#4338CA',
+  },
+  langPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  langPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   sheetTitle: {
     fontSize: 16,
@@ -718,6 +796,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748B',
     textAlign: 'center',
+  },
+  doneBtn: {
+    width: '100%',
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  doneBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
   micButton: {
     paddingHorizontal: 20,

@@ -88,6 +88,15 @@ const EXTRACTION_SCHEMA: Schema = {
   ],
 };
 
+export function normalizeDevanagariDigits(input: string): string {
+  const devanagariDigits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+  let res = input;
+  devanagariDigits.forEach((d, idx) => {
+    res = res.split(d).join(idx.toString());
+  });
+  return res;
+}
+
 /**
  * Smart deterministic Hinglish / Hindi / English parser fallback.
  * Guarantees instant automatic extraction & saving even if Gemini API is offline or rate-limited,
@@ -97,32 +106,45 @@ export function parseHinglishFallback(
   rawText: string,
   workspaceMode: 'PERSONAL' | 'BUSINESS'
 ): GeminiExtractedDraft {
-  const text = rawText.trim();
+  const normalized = normalizeDevanagariDigits(rawText.trim());
+  const text = normalized;
   const lower = text.toLowerCase();
 
-  // 1. Extract amount (supports digits like "2,000", "500.50", and common Hindi number words)
+  // 1. Extract amount (supports digits like "2,000", "500.50", "1.5k", Devanagari numerals, and Hindi number words)
   let extractedRupees: number | null = null;
   const cleanedForNum = lower.replace(/,/g, '');
-  const numMatch = cleanedForNum.match(/(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
-  if (numMatch) {
-    extractedRupees = Number(numMatch[1]);
+
+  // Check for 'k' notation (e.g. 1.5k -> 1500, 2k -> 2000)
+  const kMatch = cleanedForNum.match(/(\d+(?:\.\d+)?)\s*k\b/i);
+  if (kMatch) {
+    extractedRupees = Math.round(Number(kMatch[1]) * 1000);
   } else {
-    const wordMap: Array<[RegExp, number]> = [
-      [/\bdo\s*hazaar\b|\b2\s*hazar\b/, 2000],
-      [/\bpanch\s*hazaar\b|\bpaanch\s*hazar\b/, 5000],
-      [/\bdas\s*hazaar\b/, 10000],
-      [/\bek\s*hazaar\b|\bhazaar\b|\bhazar\b/, 1000],
-      [/\bpanch\s*sau\b|\bpaanch\s*sau\b/, 500],
-      [/\bdo\s*sau\b/, 200],
-      [/\bteen\s*sau\b/, 300],
-      [/\bchaar\s*sau\b/, 400],
-      [/\bsau\b|\bek\s*sau\b/, 100],
-      [/\bpachaas\b|\bpachas\b/, 50],
-    ];
-    for (const [regex, val] of wordMap) {
-      if (regex.test(lower)) {
-        extractedRupees = val;
-        break;
+    const numMatch = cleanedForNum.match(/(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d{1,2})?)/i);
+    if (numMatch) {
+      extractedRupees = Number(numMatch[1]);
+    } else {
+      const wordMap: Array<[RegExp, number]> = [
+        [/\b(?:do|2)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 2000],
+        [/\b(?:panch|paanch|5)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 5000],
+        [/\b(?:das|10)\s*(?:hazaar|hazar|हज़ार|हजार)\b/, 10000],
+        [/\b(?:ek|1)\s*(?:hazaar|hazar|हज़ार|हजार)\b|\b(?:hazaar|hazar|हज़ार|हजार)\b/, 1000],
+        [/\b(?:panch|paanch|5)\s*(?:sau|सौ)\b/, 500],
+        [/\b(?:chaar|4)\s*(?:sau|सौ)\b/, 400],
+        [/\b(?:teen|3)\s*(?:sau|सौ)\b/, 300],
+        [/\b(?:do|2)\s*(?:sau|सौ)\b/, 200],
+        [/\b(?:dhai|dhhai)\s*(?:sau|सौ)\b/, 250],
+        [/\b(?:dedh|derh)\s*(?:sau|सौ)\b/, 150],
+        [/\b(?:sau|सौ)\b|\b(?:ek|1)\s*(?:sau|सौ)\b/, 100],
+        [/\b(?:pachaas|pachas|पचास)\b/, 50],
+        [/\b(?:tees|तीस)\b/, 30],
+        [/\b(?:bees|बीस)\b/, 20],
+        [/\b(?:das|दस)\b/, 10],
+      ];
+      for (const [regex, val] of wordMap) {
+        if (regex.test(lower)) {
+          extractedRupees = val;
+          break;
+        }
       }
     }
   }
