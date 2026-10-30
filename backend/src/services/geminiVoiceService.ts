@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { env } from '../config/env';
+import { transcribeAudioWithGroqWhisper } from './groqWhisperService';
 
 const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
@@ -40,7 +41,7 @@ const EXTRACTION_SCHEMA: Schema = {
       type: Type.STRING,
       nullable: true,
       description:
-        'Merchant, item, person, customer, or supplier name (e.g., "Ravi", "DMart", "Petrol", "Chai & Samosa"). Always infer a clean title from the spoken text even if no store name was explicitly stated.',
+        'The exact merchant, item, person, or service explicitly spoken by the user. Never hallucinate or default to random names.',
     },
     extractedCategoryName: {
       type: Type.STRING,
@@ -287,35 +288,54 @@ export async function parseVoiceOrTextWithGemini(params: {
   clarificationAnswer?: string;
   todayIsoDate: string;
 }): Promise<GeminiExtractedDraft> {
+  // 1. If audio is provided, first try transcribing with Groq Whisper Large-v3 for maximum accuracy
+  let effectiveText = params.utteranceText?.trim() || '';
+  if (!effectiveText && params.audioBase64) {
+    try {
+      const groqTranscript = await transcribeAudioWithGroqWhisper(
+        params.audioBase64,
+        params.audioMimeType
+      );
+      if (groqTranscript) {
+        effectiveText = groqTranscript;
+      }
+    } catch {
+      // Continue to Gemini multimodal fallback
+    }
+  }
+
   const systemPrompt = `You are FinTrack's multilingual Indian financial voice assistant.
 Today's date is ${params.todayIsoDate}. Active workspace mode is ${params.workspaceMode}.
 Understand Hindi (Devanagari), Hinglish, and English naturally.
 Rules:
-1. Extract the exact rupee amount as a number in extractedRupees.
-2. ALWAYS infer a clean Merchant, Item, or Person name in extractedContactName from what the user said (for example, if user says "Petrol 300", set extractedContactName = "Petrol" and extractedCategoryName = "Petrol & Travel"; if user says "Chai 40", set extractedContactName = "Chai" and extractedCategoryName = "Chai & Dining"; if user says "Ravi ko 2000 udhaar diye", set intent = "UDHAAR_GAVE", extractedContactName = "Ravi", extractedRupees = 2000).
-3. Whenever a valid amount is present (extractedRupees > 0), ALWAYS set needsClarification = false so the entry is saved automatically without asking follow-up questions.
+1. Extract the exact rupee amount as a numeric value in extractedRupees.
+2. STRICT ACCURACY FOR NAMES: In extractedContactName, extract ONLY the exact merchant, person, store, or item explicitly mentioned by the user. NEVER invent, assume, or default to any names. If no person or store is mentioned (e.g. "Petrol 300"), use the expense title ("Petrol").
+3. Whenever a valid amount is present (extractedRupees > 0), ALWAYS set needsClarification = false so the entry is saved automatically.
 4. Default intent to "EXPENSE" unless the user mentions salary/income ("INCOME"), giving udhaar ("UDHAAR_GAVE"), taking udhaar ("UDHAAR_GOT"), or udhaar repayment ("UDHAAR_REPAYMENT").`;
 
   const contents: Array<Record<string, unknown> | string> = [];
 
-  if (params.audioBase64 && params.audioMimeType) {
+  // If we already have high-accuracy transcript from Groq Whisper or user text, send text prompt
+  if (effectiveText) {
+    let userPrompt = `User said: "${effectiveText}"`;
+    if (params.previousDraftContext && params.clarificationAnswer) {
+      userPrompt += `\nPrevious context: ${params.previousDraftContext}\nUser's answer: "${params.clarificationAnswer}". Resolve and set needsClarification = false.`;
+    }
+    contents.push(userPrompt);
+  } else if (params.audioBase64 && params.audioMimeType) {
+    // Multimodal audio fallback to Gemini directly
     contents.push({
       inlineData: {
         data: params.audioBase64,
         mimeType: params.audioMimeType,
       },
     });
+    contents.push(
+      'Transcribe this Hindi/Hinglish/English audio and extract the structured financial entry. Extract ONLY the exact names spoken.'
+    );
+  } else {
+    throw new Error('No voice audio or text provided');
   }
-
-  let userPrompt = params.utteranceText
-    ? `User spoken utterance: "${params.utteranceText}"`
-    : 'Transcribe the attached Hindi/Hinglish/English audio and extract the structured financial entry.';
-
-  if (params.previousDraftContext && params.clarificationAnswer) {
-    userPrompt += `\nPrevious context: ${params.previousDraftContext}\nUser's answer: "${params.clarificationAnswer}". Resolve and set needsClarification = false.`;
-  }
-
-  contents.push(userPrompt);
 
   try {
     const response = await ai.models.generateContent({

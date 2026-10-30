@@ -38,6 +38,7 @@ const envSchema = z.object({
     'GEMINI_API_KEY',
     'Open https://aistudio.google.com -> Get API Key -> Create API key and paste into backend/.env'
   ),
+  GROQ_API_KEY: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
