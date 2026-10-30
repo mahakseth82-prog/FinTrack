@@ -71,13 +71,26 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
 
   const speechRecRef = useRef<any>(null);
   const latestTranscriptRef = useRef<string>('');
+  const silenceTimerRef = useRef<any>(null);
   const waveAnim = useRef(new Animated.Value(0.35)).current;
 
+  // Auto-start recording immediately when sheet opens (no extra "tap to speak" step!)
   useEffect(() => {
     setCurrentDraft(initialDraft);
     setSavedBanner(null);
     setErrorText(null);
-  }, [initialDraft, visible]);
+    setUtteranceInput('');
+    latestTranscriptRef.current = '';
+
+    if (visible && !initialDraft) {
+      const autoStartTimer = setTimeout(() => {
+        void startMicRecording();
+      }, 150);
+      return () => clearTimeout(autoStartTimer);
+    } else if (!visible) {
+      void stopMicRecording();
+    }
+  }, [visible, initialDraft]);
 
   useEffect(() => {
     if (!isRecording && !parseVoiceMutation.isPending) {
@@ -103,6 +116,10 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   }, [isRecording, parseVoiceMutation.isPending, waveAnim]);
 
   const handleResetAndClose = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (speechRecRef.current) {
       try {
         speechRecRef.current.abort();
@@ -121,7 +138,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   };
 
   /**
-   * Automatically parses and saves the spoken/typed entry directly into Passbook / Udhaar Khata.
+   * Automatically parses and saves the spoken/typed entry directly into Transactions or Ledger.
    * No second page for merchant name, category, etc.
    */
   const submitAndAutoSave = async (params: {
@@ -150,7 +167,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
         const s = res.savedSummary;
         const sign = s.intent === 'INCOME' || s.intent === 'UDHAAR_REPAYMENT' ? '+' : '-';
         setSavedBanner(
-          `Saved: ${s.title} (${sign} ${s.amountFormatted} • ${s.paymentVia})`
+          `✓ Saved: ${s.title} (${sign}${s.amountFormatted} • ${s.paymentVia})`
         );
         setUtteranceInput('');
         latestTranscriptRef.current = '';
@@ -164,11 +181,10 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
       if (res.draft.status === 'NEEDS_CLARIFICATION') {
         setCurrentDraft(res.draft);
       } else {
-        // Fallback auto-confirm if draft has an amount
         await confirmMutation.mutateAsync({
           draftId: res.draft.id,
         });
-        setSavedBanner('Entry saved to Passbook');
+        setSavedBanner('✓ Entry saved to transactions');
         setTimeout(() => {
           handleResetAndClose();
         }, 750);
@@ -181,17 +197,16 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   };
 
   /**
-   * Starts microphone listening:
-   * - On Web (Chrome/Edge): Uses browser Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`)
-   *   with live Hindi/Hinglish/English transcription AND auto-saves as soon as you finish speaking.
-   * - On Mobile / Fallback: Uses `expo-av` audio recording and sends Base64 audio to Gemini.
+   * Starts microphone listening immediately:
+   * - In Web / Mobile Browser: uses SpeechRecognition with silence auto-stop.
+   * - In Native Mobile (Expo Go): uses expo-audio / expo-file-system.
    */
   const startMicRecording = async () => {
     setErrorText(null);
     setSavedBanner(null);
     latestTranscriptRef.current = '';
 
-    // 1. Web Browser Live Speech Recognition (Chrome / Edge / Android WebView)
+    // 1. Web / Chromium Live Speech Recognition with silence detection
     if (Platform.OS === 'web') {
       const webGlobal = globalThis as any;
       const SpeechRecognition =
@@ -200,7 +215,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
       if (SpeechRecognition) {
         try {
           const recognition = new SpeechRecognition();
-          recognition.lang = 'hi-IN'; // Understands Hindi, Hinglish & Indian English
+          recognition.lang = 'hi-IN'; // Understands Hindi, Hinglish & English
           recognition.continuous = false;
           recognition.interimResults = true;
 
@@ -216,17 +231,31 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
             const trimmed = transcript.trim();
             latestTranscriptRef.current = trimmed;
             setUtteranceInput(trimmed);
+
+            // Silence auto-stop: When you finish speaking, auto-stop and fetch data after 1.2s silence
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+            }
+            silenceTimerRef.current = setTimeout(() => {
+              if (speechRecRef.current) {
+                try {
+                  speechRecRef.current.stop();
+                } catch {
+                  // ignore
+                }
+              }
+            }, 1200);
           };
 
           recognition.onerror = (event: any) => {
             setIsRecording(false);
             if (event?.error === 'not-allowed') {
               setErrorText(
-                'Microphone permission blocked in browser. Please allow microphone access in the address bar or type below.'
+                'Microphone permission blocked. Please allow microphone access in your browser or type below.'
               );
-            } else {
+            } else if (event?.error !== 'no-speech') {
               setErrorText(
-                'Could not hear clearly. Please try speaking again or type below.'
+                'Could not hear clearly. Tap Speak Again or type below.'
               );
             }
           };
@@ -234,6 +263,10 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
           recognition.onend = () => {
             setIsRecording(false);
             speechRecRef.current = null;
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
             const spoken = latestTranscriptRef.current.trim();
             if (spoken.length > 0) {
               void submitAndAutoSave({ text: spoken });
@@ -244,30 +277,40 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
           recognition.start();
           return;
         } catch {
-          // Fall through to expo-av recording if SpeechRecognition fails to initialize
+          // Fall through to native recording
         }
       }
     }
 
-    // 2. Native Mobile (Expo Go) or Non-Chromium Browser Audio Recording
+    // 2. Native Mobile (Expo Go) Recording with expo-audio & expo-file-system
     try {
-      const { Audio } = await import('expo-av');
-      const perm = await Audio.requestPermissionsAsync();
+      const expoAudio = await import('expo-audio');
+      const perm = await expoAudio.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         setErrorText(
-          'Microphone permission not granted. Please allow microphone permission or type below.'
+          'Microphone permission not granted. Please allow microphone access in settings or type below.'
         );
         return;
       }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+
+      await expoAudio.setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+
+      const recorder = new expoAudio.AudioModule.AudioRecorder(
+        expoAudio.RecordingPresets.HIGH_QUALITY
       );
-      setRecordingObj(recording);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecordingObj(recorder);
       setIsRecording(true);
+
+      // Auto-stop native recording after 5 seconds of speaking to fetch data automatically
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        void stopMicRecording();
+      }, 5000);
     } catch (err: unknown) {
       setErrorText(
         err instanceof Error
@@ -278,6 +321,11 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
   };
 
   const stopMicRecording = async () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
     // If Web SpeechRecognition is active, stopping it triggers `onend` which auto-saves
     if (speechRecRef.current) {
       try {
@@ -295,16 +343,26 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
 
     setIsRecording(false);
     try {
-      await recordingObj.stopAndUnloadAsync();
-      const uri = recordingObj.getURI();
+      await recordingObj.stop();
+      const uri = recordingObj.uri;
       setRecordingObj(null);
 
       if (uri) {
-        const { base64, mimeType } = await uriToBase64(uri);
+        let base64 = '';
+        try {
+          const FileSystem = await import('expo-file-system');
+          base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } catch {
+          const fallback = await uriToBase64(uri);
+          base64 = fallback.base64;
+        }
+
         await submitAndAutoSave({
           text: utteranceInput.trim() || undefined,
           audioBase64: base64,
-          audioMimeType: mimeType,
+          audioMimeType: 'audio/m4a',
         });
       } else if (utteranceInput.trim()) {
         await submitAndAutoSave({ text: utteranceInput.trim() });
@@ -420,29 +478,51 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
 
                 <Text style={styles.micStatusText}>
                   {isRecording
-                    ? 'Listening... Speak now (e.g. "Petrol 300" or "Ravi ko 500 udhaar")'
+                    ? 'Listening... Speak now (Hindi / Hinglish / English)'
                     : isBusy
-                      ? 'Saving entry to Passbook...'
-                      : 'Tap Mic to speak, or type in a single line below'}
+                      ? 'Saving entry to transactions...'
+                      : 'Listening stopped. Tap Speak Again or type below:'}
                 </Text>
 
-                <TouchableOpacity
-                  onPress={isRecording ? stopMicRecording : startMicRecording}
-                  disabled={isBusy}
-                  style={[
-                    styles.micButton,
-                    isRecording && styles.micButtonRecording,
-                  ]}
-                >
-                  <Text style={styles.micButtonText}>
-                    {isRecording ? 'Stop & Save' : 'Tap to Speak'}
+                {/* Live Heard Spoken Words Box */}
+                {utteranceInput ? (
+                  <View style={styles.liveHeardBox}>
+                    <Text style={styles.liveHeardLabel}>HEARD:</Text>
+                    <Text style={styles.liveHeardText}>&ldquo;{utteranceInput}&rdquo;</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.micHintText}>
+                    e.g. &ldquo;Petrol 300&rdquo;, &ldquo;DMart 1200&rdquo;, &ldquo;Ravi ko 500 udhaar&rdquo;
                   </Text>
-                </TouchableOpacity>
+                )}
+
+                {isRecording ? (
+                  <TouchableOpacity
+                    onPress={stopMicRecording}
+                    disabled={isBusy}
+                    style={[styles.micButton, styles.micButtonRecording]}
+                  >
+                    <Text style={styles.micButtonText}>⏹ Stop & Save</Text>
+                  </TouchableOpacity>
+                ) : !isBusy ? (
+                  <TouchableOpacity
+                    onPress={startMicRecording}
+                    style={styles.micButton}
+                  >
+                    <Text style={styles.micButtonText}>🎙 Speak Again</Text>
+                  </TouchableOpacity>
+                ) : null}
+
+                {isRecording && (
+                  <Text style={styles.autoSaveNotice}>
+                    Auto-saves automatically when you stop speaking
+                  </Text>
+                )}
               </View>
 
               {/* Single-Line Quick Text Input (Auto-Saves Immediately) */}
               <Text style={styles.inputLabel}>
-                Or write in one line (Auto-saves immediately):
+                Or write in one line (Press Enter to save):
               </Text>
               <TextInput
                 value={utteranceInput}
@@ -621,7 +701,42 @@ const styles = StyleSheet.create({
   },
   micStatusText: {
     fontSize: 12,
-    color: '#475569',
+    fontWeight: '600',
+    color: '#0F172A',
+    textAlign: 'center',
+  },
+  micHintText: {
+    fontSize: 11,
+    color: '#64748B',
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  liveHeardBox: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  liveHeardLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  liveHeardText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  autoSaveNotice: {
+    fontSize: 11,
+    color: '#64748B',
     textAlign: 'center',
   },
   micButton: {

@@ -342,13 +342,18 @@ Rules:
       confidence: parsed.confidence ?? 0.95,
     };
   } catch (err) {
-    // If Gemini API fails (e.g. quota, model unavailable, network issue) and we have utteranceText, use deterministic Hinglish fallback
+    console.error('⚠️ [Gemini Voice Parsing Error]:', err);
+    // If Gemini API fails (e.g. quota, network, audio issue) and we have utteranceText, use deterministic Hinglish fallback
     if (params.utteranceText && params.utteranceText.trim()) {
       return parseHinglishFallback(
         params.utteranceText.trim(),
         params.workspaceMode
       );
     }
-    throw err;
+    throw new Error(
+      err instanceof Error
+        ? `Voice processing error: ${err.message}`
+        : 'Could not process voice entry'
+    );
   }
 }

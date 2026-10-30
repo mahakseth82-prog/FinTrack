@@ -15,7 +15,9 @@
         "RECORD_AUDIO",
         "CAMERA"
       ]
-    }
+    },
+    "plugins": [
+      "expo-audio"
+    ]
   }
 }
-
