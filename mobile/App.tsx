@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { AuthProvider } from './src/context/AuthContext';
@@ -60,16 +61,18 @@ class AppErrorBoundary extends React.Component<
 
 export default function App() {
   return (
-    <AppErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <ThemeProvider>
-            <StatusBar style="dark" />
-            <RootNavigator />
-          </ThemeProvider>
-        </AuthProvider>
-      </QueryClientProvider>
-    </AppErrorBoundary>
+    <SafeAreaProvider>
+      <AppErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ThemeProvider>
+              <StatusBar style="dark" />
+              <RootNavigator />
+            </ThemeProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </AppErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 
