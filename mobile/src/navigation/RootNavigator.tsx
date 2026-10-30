@@ -151,21 +151,48 @@ export const RootNavigator: React.FC = () => {
         const uri = recorder.uri;
 
         if (uri) {
-          const FileSystem = await import('expo-file-system');
-          const base64 = await FileSystem.readAsStringAsync(uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
+          let base64 = '';
+          try {
+            const { File } = await import('expo-file-system');
+            const file = new File(uri);
+            base64 = await file.base64();
+          } catch {
+            try {
+              const FileSystem = await import('expo-file-system/legacy');
+              base64 = await FileSystem.readAsStringAsync(uri, {
+                encoding: FileSystem.EncodingType.Base64,
+              });
+            } catch {
+              const res = await fetch(uri);
+              const blob = await res.blob();
+              base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const r =
+                    typeof reader.result === 'string' ? reader.result : '';
+                  resolve(r.includes(',') ? r.split(',')[1] : r);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            }
+          }
 
-          await submitVoiceEntry({
-            text: latestTranscriptRef.current.trim() || undefined,
-            audioBase64: base64,
-            audioMimeType: 'audio/m4a',
-          });
+          if (base64) {
+            await submitVoiceEntry({
+              text: latestTranscriptRef.current.trim() || undefined,
+              audioBase64: base64,
+              audioMimeType: 'audio/m4a',
+            });
+          }
         }
       } catch (err: unknown) {
+        console.error('Error processing audio recording:', err);
         setVoiceStatusType('ERROR');
-        setVoiceStatusMsg('Failed to process audio');
-        setTimeout(() => setVoiceStatusMsg(null), 3000);
+        const msg =
+          err instanceof Error ? err.message : 'Failed to process audio';
+        setVoiceStatusMsg(msg);
+        setTimeout(() => setVoiceStatusMsg(null), 3500);
       }
       return;
     }
