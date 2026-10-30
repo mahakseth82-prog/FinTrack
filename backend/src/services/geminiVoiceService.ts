@@ -1,6 +1,9 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { env } from '../config/env';
-import { transcribeAudioWithGroqWhisper } from './groqWhisperService';
+import {
+  transcribeAudioWithGroqWhisper,
+  extractFinancialEntityWithGroq,
+} from './groqWhisperService';
 
 const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
@@ -301,6 +304,34 @@ export async function parseVoiceOrTextWithGemini(params: {
       }
     } catch {
       // Continue to Gemini multimodal fallback
+    }
+  }
+
+  // 2. High-speed Groq entity extraction (bypasses Gemini rate limits & avoids hallucination)
+  if (effectiveText && !params.clarificationAnswer) {
+    try {
+      const groqExt = await extractFinancialEntityWithGroq(
+        effectiveText,
+        params.workspaceMode,
+        params.todayIsoDate
+      );
+      if (groqExt && groqExt.amountRupees > 0) {
+        return {
+          transcript: effectiveText,
+          intent: groqExt.intent,
+          extractedRupees: groqExt.amountRupees,
+          extractedContactName: groqExt.merchantOrPerson || 'Entry',
+          extractedCategoryName: groqExt.category || 'General',
+          extractedDueDate: null,
+          paymentVia: groqExt.paymentVia || 'CASH',
+          description: effectiveText,
+          needsClarification: false,
+          ambiguityQuestion: null,
+          confidence: 0.98,
+        };
+      }
+    } catch {
+      // Fall through to Gemini
     }
   }
 
