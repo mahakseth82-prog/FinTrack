@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -134,6 +134,47 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   });
   const scanBillMutation = useScanBillOcr(activeWorkspaceId);
 
+  // Daily Midnight Reset: Automatically rollover at 12:00 AM local time
+  const [currentDayKey, setCurrentDayKey] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+
+  useEffect(() => {
+    const checkMidnight = () => {
+      const d = new Date();
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      if (key !== currentDayKey) {
+        setCurrentDayKey(key);
+      }
+    };
+
+    const now = new Date();
+    const nextMidnight = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      0,
+      0,
+      1
+    );
+    const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - now.getTime());
+
+    const timeoutId = setTimeout(checkMidnight, msUntilMidnight);
+    const intervalId = setInterval(checkMidnight, 30000);
+
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    };
+  }, [currentDayKey]);
+
+  // Formatted date string for Today's Spending (e.g. "30 October 2026")
+  const todayFormattedDate = useMemo(() => {
+    const d = new Date();
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+  }, [currentDayKey]);
+
   // Calculate Month Navigation
   const [yearNum, monthNum] = selectedMonthYear.split('-').map(Number);
   const monthLabel = `${MONTH_NAMES[monthNum - 1]} ${yearNum}`;
@@ -167,50 +208,37 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
     );
   }, [transactionsQuery.data, summaryQuery.data]);
 
-  // Section 1 Computations (Total Spending, Total Budget, Remaining)
-  const {
-    totalBudgetPaise,
-    totalExpensePaise,
-    remainingBudgetPaise,
-    budgetUsedPercent,
-    progressBarColor,
-  } = useMemo(() => {
-    const expenseOnly = allTransactions.filter((t) => t.kind === 'EXPENSE');
-    const spentPaise = expenseOnly.reduce(
-      (acc, t) => acc + Number(t.amountPaise),
+  // Today's Confirmed Expenses: SUM(amount_paise) where kind == 'EXPENSE' and occurredAt >= local midnight
+  const { todayExpensePaise, todayExpenseCount } = useMemo(() => {
+    const d = new Date();
+    const localMidnightMs = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate(),
+      0,
+      0,
+      0,
       0
-    );
+    ).getTime();
 
-    const budgetList = budgetsQuery.data?.budgets || [];
-    let budgetLimit = budgetList.reduce(
-      (acc, b) => acc + Number(b.limitPaise),
-      0
-    );
-    if (budgetLimit <= 0) {
-      budgetLimit = 4000000; // ₹40,000 default if not configured
-    }
+    let sumPaise = 0;
+    let count = 0;
 
-    const remaining = Math.max(0, budgetLimit - spentPaise);
-    const usedPercent = Math.min(
-      100,
-      Math.round((spentPaise / budgetLimit) * 100)
-    );
-
-    let barColor = EMERALD_THEME.emeraldGreen;
-    if (usedPercent >= 100) {
-      barColor = EMERALD_THEME.alertRed;
-    } else if (usedPercent >= 80) {
-      barColor = EMERALD_THEME.warningOrange;
+    for (const t of allTransactions) {
+      if (t.kind === 'EXPENSE') {
+        const tTime = new Date(t.occurredAt).getTime();
+        if (tTime >= localMidnightMs) {
+          sumPaise += Number(t.amountPaise);
+          count++;
+        }
+      }
     }
 
     return {
-      totalBudgetPaise: budgetLimit,
-      totalExpensePaise: spentPaise,
-      remainingBudgetPaise: remaining,
-      budgetUsedPercent: usedPercent,
-      progressBarColor: barColor,
+      todayExpensePaise: sumPaise,
+      todayExpenseCount: count,
     };
-  }, [allTransactions, budgetsQuery.data]);
+  }, [allTransactions, currentDayKey]);
 
   // Date-wise Grouping for Recent Transactions with Search
   const dateGroups = useMemo(() => {
@@ -368,35 +396,23 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Monthly Spending Summary Card - Directly below search bar */}
-        <View style={styles.heroBudgetCard}>
-          {/* Card Header with Month Navigation */}
-          <View style={styles.cardHeaderRow}>
+        {/* Today's Spending Card (Rollover at 12:00 AM midnight) */}
+        <View style={styles.todaySpendingCard}>
+          {/* Header Row: Label & Formatted Date */}
+          <View style={styles.todayCardHeader}>
             <View>
-              <Text style={styles.heroSubLabel}>MONTHLY SPENDING</Text>
-              <Text style={styles.monthSelectorTitle}>{monthLabel}</Text>
+              <Text style={styles.todaySubLabel}>TODAY'S SPENDING</Text>
+              <Text style={styles.todayDateTitle}>{todayFormattedDate}</Text>
             </View>
 
-            <View style={styles.monthControls}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={handlePrevMonth}
-                style={styles.monthArrowBtn}
-              >
-                <Ionicons name="chevron-back" size={15} color="#0F172A" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={handleNextMonth}
-                style={styles.monthArrowBtn}
-              >
-                <Ionicons name="chevron-forward" size={15} color="#0F172A" />
-              </TouchableOpacity>
+            <View style={styles.todayPillBadge}>
+              <View style={styles.todayGreenDot} />
+              <Text style={styles.todayPillBadgeText}>Today</Text>
             </View>
           </View>
 
-          {/* Amount & Badge */}
-          <View style={styles.heroAmountRow}>
+          {/* Amount Row */}
+          <View style={styles.todayAmountRow}>
             {transactionsQuery.isLoading && allTransactions.length === 0 ? (
               <ActivityIndicator
                 size="small"
@@ -404,74 +420,16 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                 style={{ alignSelf: 'flex-start', marginVertical: 8 }}
               />
             ) : (
-              <Text style={styles.heroAmountText}>
-                {formatINR(totalExpensePaise)}
+              <Text style={styles.todayAmountText}>
+                {formatINR(todayExpensePaise)}
               </Text>
             )}
 
-            <View
-              style={[
-                styles.budgetBadge,
-                budgetUsedPercent >= 100
-                  ? styles.badgeAlert
-                  : budgetUsedPercent >= 80
-                  ? styles.badgeWarning
-                  : styles.badgeNormal,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.budgetBadgeText,
-                  budgetUsedPercent >= 100
-                    ? styles.badgeTextAlert
-                    : budgetUsedPercent >= 80
-                    ? styles.badgeTextWarning
-                    : styles.badgeTextNormal,
-                ]}
-              >
-                {budgetUsedPercent}% Used
-              </Text>
-            </View>
-          </View>
-
-          {/* Horizontal Progress Bar */}
-          <View style={styles.progressBarTrack}>
-            <View
-              style={[
-                styles.progressBarFill,
-                {
-                  width: `${Math.min(100, Math.max(2, budgetUsedPercent))}%`,
-                  backgroundColor: progressBarColor,
-                },
-              ]}
-            />
-          </View>
-
-          {/* Budget Comparison Sub-Row */}
-          <View style={styles.budgetStatsRow}>
-            <View>
-              <Text style={styles.statLabel}>Total Budget</Text>
-              <Text style={styles.statValue}>
-                {formatINR(totalBudgetPaise)}
-              </Text>
-            </View>
-
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.statLabel}>Remaining Budget</Text>
-              <Text
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      remainingBudgetPaise <= 0
-                        ? EMERALD_THEME.alertRed
-                        : EMERALD_THEME.emeraldGreen,
-                  },
-                ]}
-              >
-                {formatINR(remainingBudgetPaise)}
-              </Text>
-            </View>
+            <Text style={styles.todayMetaSubtext}>
+              {todayExpenseCount === 0
+                ? 'No spends recorded yet today'
+                : `${todayExpenseCount} spend${todayExpenseCount === 1 ? '' : 's'} recorded`}
+            </Text>
           </View>
         </View>
 
@@ -682,7 +640,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: SYSTEM_FONT_STACK,
   },
-  heroBudgetCard: {
+  todaySpendingCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 16,
@@ -695,107 +653,63 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  cardHeaderRow: {
+  todayCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 10,
   },
-  heroSubLabel: {
+  todaySubLabel: {
     fontSize: 10,
     fontWeight: '800',
     color: '#64748B',
     letterSpacing: 0.8,
   },
-  monthSelectorTitle: {
+  todayDateTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: '#0F172A',
     fontFamily: SYSTEM_FONT_STACK,
     marginTop: 2,
   },
-  monthControls: {
+  todayPillBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  monthArrowBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#F8FAFC',
+    gap: 5,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#A7F3D0',
   },
-  heroAmountRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+  todayGreenDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#059669',
   },
-  heroAmountText: {
-    fontSize: 28,
+  todayPillBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#065F46',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  todayAmountRow: {
+    marginBottom: 4,
+  },
+  todayAmountText: {
+    fontSize: 32,
     fontWeight: '900',
     color: '#0F172A',
     fontFamily: SYSTEM_FONT_STACK,
+    fontVariant: ['tabular-nums'],
   },
-  budgetBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  badgeNormal: {
-    backgroundColor: '#ECFDF5',
-  },
-  badgeWarning: {
-    backgroundColor: '#FEF3C7',
-  },
-  badgeAlert: {
-    backgroundColor: '#FEE2E2',
-  },
-  budgetBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  badgeTextNormal: {
-    color: '#059669',
-  },
-  badgeTextWarning: {
-    color: '#D97706',
-  },
-  badgeTextAlert: {
-    color: '#DC2626',
-  },
-  progressBarTrack: {
-    height: 8,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  budgetStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F8FAFC',
-  },
-  statLabel: {
-    fontSize: 11,
+  todayMetaSubtext: {
+    fontSize: 12,
     color: '#64748B',
+    marginTop: 3,
     fontWeight: '500',
-  },
-  statValue: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginTop: 2,
   },
   recentSectionCard: {
     backgroundColor: '#FFFFFF',

@@ -11,7 +11,6 @@ import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 import { LanguagePreferenceModal } from './LanguagePreferenceModal';
-import { ManualTransactionModal } from './ManualTransactionModal';
 
 function toTitleCase(name: string): string {
   return name
@@ -36,7 +35,6 @@ export const HeaderModeSwitcher: React.FC = () => {
   const { mode, setMode } = useFinTrackTheme();
   const { user, signOut } = useAuth();
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
-  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
 
   const formattedUserName = toTitleCase(user?.fullName || 'Mahak');
   const userInitials = getUserInitials(user?.fullName || 'Mahak');
@@ -117,15 +115,16 @@ export const HeaderModeSwitcher: React.FC = () => {
         </View>
       </View>
 
-      {/* Right: Solid "+ Add Spend" Button + Bell Icon */}
+      {/* Right: Clean Text Button "Language" + Bell Icon */}
       <View style={styles.rightActionsRow}>
         <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => setIsManualModalOpen(true)}
-          style={styles.addSpendBtn}
+          activeOpacity={0.8}
+          onPress={() => setIsLangModalOpen(true)}
+          style={styles.langBtn}
         >
-          <Ionicons name="add" size={16} color="#FFFFFF" />
-          <Text style={styles.addSpendBtnText}>Add Spend</Text>
+          <Text style={styles.langBtnText}>
+            {user?.preferredLanguage === 'hi' ? 'भाषा: हिन्दी' : 'Language'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -141,12 +140,6 @@ export const HeaderModeSwitcher: React.FC = () => {
       <LanguagePreferenceModal
         visible={isLangModalOpen}
         onClose={() => setIsLangModalOpen(false)}
-      />
-
-      {/* Manual Entry Modal triggered from Top Header */}
-      <ManualTransactionModal
-        visible={isManualModalOpen}
-        onClose={() => setIsManualModalOpen(false)}
       />
     </View>
   );
@@ -226,24 +219,20 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     gap: 8,
   },
-  addSpendBtn: {
-    flexDirection: 'row',
+  langBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    justifyContent: 'center',
   },
-  addSpendBtnText: {
+  langBtnText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '600',
+    color: '#334155',
     fontFamily: SYSTEM_FONT_STACK,
   },
   bellIconBtn: {

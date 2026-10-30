@@ -497,7 +497,31 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Tab 3: Profile */}
+            {/* Tab 3: Insights */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('INSIGHTS')}
+              style={styles.tabItem}
+            >
+              <Ionicons
+                name={activeTab === 'INSIGHTS' ? 'stats-chart' : 'stats-chart-outline'}
+                size={22}
+                color={activeTab === 'INSIGHTS' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === 'INSIGHTS' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {isHi ? 'इनसाइट्स' : 'Insights'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Tab 4: Profile */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setActiveTab('PROFILE')}

@@ -108,6 +108,38 @@ export const InsightsScreen: React.FC = () => {
     };
   }, [transactions]);
 
+  // Comprehensive Monthly Budget & Progress Calculations
+  const { totalBudgetPaise, remainingBudgetPaise, budgetUsedPercent, progressBarColor } = useMemo(() => {
+    const budgetList = budgetData?.budgets || [];
+    let budgetLimit = budgetList.reduce(
+      (acc, b) => acc + Number(b.limitPaise),
+      0
+    );
+    if (budgetLimit <= 0) {
+      budgetLimit = 4000000; // ₹40,000 default if not configured
+    }
+
+    const remaining = Math.max(0, budgetLimit - totalExpensePaise);
+    const usedPercent = Math.min(
+      100,
+      Math.round((totalExpensePaise / budgetLimit) * 100)
+    );
+
+    let barColor = EMERALD_THEME.emeraldGreen;
+    if (usedPercent >= 100) {
+      barColor = EMERALD_THEME.alertRed;
+    } else if (usedPercent >= 80) {
+      barColor = EMERALD_THEME.warningOrange;
+    }
+
+    return {
+      totalBudgetPaise: budgetLimit,
+      remainingBudgetPaise: remaining,
+      budgetUsedPercent: usedPercent,
+      progressBarColor: barColor,
+    };
+  }, [budgetData?.budgets, totalExpensePaise]);
+
   if (txLoading && transactions.length === 0) {
     return (
       <View style={styles.centerContainer}>
@@ -132,6 +164,85 @@ export const InsightsScreen: React.FC = () => {
           <TouchableOpacity activeOpacity={0.7} onPress={handleNextMonth} style={styles.monthArrowBtn}>
             <MinimalIcon name="chevron-right" size={14} color="#0F172A" />
           </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 1. Comprehensive Total Monthly Spending Card */}
+      <View style={styles.monthlySpendingCard}>
+        <View style={styles.monthlyCardHeaderRow}>
+          <View>
+            <Text style={styles.monthlyCardSubLabel}>TOTAL MONTHLY SPENDING</Text>
+            <Text style={styles.monthlyCardTitle}>{monthLabel}</Text>
+          </View>
+
+          <View
+            style={[
+              styles.budgetBadge,
+              budgetUsedPercent >= 100
+                ? styles.badgeAlert
+                : budgetUsedPercent >= 80
+                ? styles.badgeWarning
+                : styles.badgeNormal,
+            ]}
+          >
+            <Text
+              style={[
+                styles.budgetBadgeText,
+                budgetUsedPercent >= 100
+                  ? styles.badgeTextAlert
+                  : budgetUsedPercent >= 80
+                  ? styles.badgeTextWarning
+                  : styles.badgeTextNormal,
+              ]}
+            >
+              {budgetUsedPercent}% Used
+            </Text>
+          </View>
+        </View>
+
+        {/* Big Amount */}
+        <Text style={styles.monthlyAmountText}>
+          {formatINR(totalExpensePaise)}
+        </Text>
+
+        {/* Horizontal Progress Bar */}
+        <View style={styles.progressBarTrack}>
+          <View
+            style={[
+              styles.progressBarFill,
+              {
+                width: `${Math.min(100, Math.max(2, budgetUsedPercent))}%`,
+                backgroundColor: progressBarColor,
+              },
+            ]}
+          />
+        </View>
+
+        {/* Budget Stats Row */}
+        <View style={styles.budgetStatsRow}>
+          <View>
+            <Text style={styles.statLabel}>Total Monthly Budget</Text>
+            <Text style={styles.statValue}>
+              {formatINR(totalBudgetPaise)}
+            </Text>
+          </View>
+
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.statLabel}>Remaining Budget</Text>
+            <Text
+              style={[
+                styles.statValue,
+                {
+                  color:
+                    remainingBudgetPaise <= 0
+                      ? EMERALD_THEME.alertRed
+                      : EMERALD_THEME.emeraldGreen,
+                },
+              ]}
+            >
+              {formatINR(remainingBudgetPaise)}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -354,6 +465,102 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  monthlySpendingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  monthlyCardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  monthlyCardSubLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+  monthlyCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    fontFamily: SYSTEM_FONT_STACK,
+    marginTop: 2,
+  },
+  monthlyAmountText: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#0F172A',
+    fontFamily: SYSTEM_FONT_STACK,
+    fontVariant: ['tabular-nums'],
+    marginBottom: 12,
+  },
+  budgetBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  badgeNormal: {
+    backgroundColor: '#ECFDF5',
+  },
+  badgeWarning: {
+    backgroundColor: '#FEF3C7',
+  },
+  badgeAlert: {
+    backgroundColor: '#FEE2E2',
+  },
+  budgetBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  badgeTextNormal: {
+    color: '#059669',
+  },
+  badgeTextWarning: {
+    color: '#D97706',
+  },
+  badgeTextAlert: {
+    color: '#DC2626',
+  },
+  progressBarTrack: {
+    height: 8,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  budgetStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F8FAFC',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  statValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 2,
   },
   kpiRow: {
     flexDirection: 'row',
