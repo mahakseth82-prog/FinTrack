@@ -205,6 +205,7 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
     setErrorText(null);
     setSavedBanner(null);
     latestTranscriptRef.current = '';
+    setIsRecording(true);
 
     // 1. Web / Chromium Live Speech Recognition with silence detection
     if (Platform.OS === 'web') {
@@ -477,11 +478,9 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                 </View>
 
                 <Text style={styles.micStatusText}>
-                  {isRecording
-                    ? 'Listening... Speak now (Hindi / Hinglish / English)'
-                    : isBusy
-                      ? 'Saving entry to transactions...'
-                      : 'Listening stopped. Tap Speak Again or type below:'}
+                  {isBusy
+                    ? 'Saving entry to transactions...'
+                    : 'Listening... Speak now (Hindi / Hinglish / English)'}
                 </Text>
 
                 {/* Live Heard Spoken Words Box */}
@@ -496,28 +495,9 @@ export const VoiceAssistantSheet: React.FC<VoiceAssistantSheetProps> = ({
                   </Text>
                 )}
 
-                {isRecording ? (
-                  <TouchableOpacity
-                    onPress={stopMicRecording}
-                    disabled={isBusy}
-                    style={[styles.micButton, styles.micButtonRecording]}
-                  >
-                    <Text style={styles.micButtonText}>⏹ Stop & Save</Text>
-                  </TouchableOpacity>
-                ) : !isBusy ? (
-                  <TouchableOpacity
-                    onPress={startMicRecording}
-                    style={styles.micButton}
-                  >
-                    <Text style={styles.micButtonText}>🎙 Speak Again</Text>
-                  </TouchableOpacity>
-                ) : null}
-
-                {isRecording && (
-                  <Text style={styles.autoSaveNotice}>
-                    Auto-saves automatically when you stop speaking
-                  </Text>
-                )}
+                <Text style={styles.autoSaveNotice}>
+                  FinTrack automatically saves when you finish speaking
+                </Text>
               </View>
 
               {/* Single-Line Quick Text Input (Auto-Saves Immediately) */}
