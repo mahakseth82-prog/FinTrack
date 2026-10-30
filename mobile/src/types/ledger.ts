@@ -19,6 +19,8 @@ export type DraftStatus =
   | 'CONFIRMED'
   | 'DISMISSED';
 
+export type AppLanguage = 'en' | 'hi';
+
 export interface IngestionDraftDto {
   id: string;
   workspaceId: string;
@@ -30,6 +32,7 @@ export interface IngestionDraftDto {
   extractedAmountRupees: number | null;
   extractedAmountFormatted: string | null;
   extractedContactName: string | null;
+  normalizedTitle?: string | null;
   matchedContactId: string | null;
   extractedCategoryName: string | null;
   extractedDueDate: string | null;

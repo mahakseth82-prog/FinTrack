@@ -18,6 +18,7 @@ import {
 import { SYSTEM_FONT_STACK } from '../theme/colors';
 import { MinimalIcon } from '../components/MinimalIcon';
 import { HeaderModeSwitcher } from '../components/HeaderModeSwitcher';
+import { LanguagePreferenceModal } from '../components/LanguagePreferenceModal';
 import { AuthScreen } from '../screens/AuthScreen';
 import { PersonalDashboardScreen } from '../screens/PersonalDashboardScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
@@ -27,7 +28,7 @@ import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 export type ActiveTab = 'HOME' | 'LEDGER';
 
 export const RootNavigator: React.FC = () => {
-  const { user } = useAuth();
+  const { user, hasSelectedLanguage } = useAuth();
   const { mode, palette, activeWorkspaceId, registerBackendWorkspaces } =
     useFinTrackTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab>('HOME');
@@ -90,8 +91,9 @@ export const RootNavigator: React.FC = () => {
     audioBase64?: string;
     audioMimeType?: string;
   }) => {
+    const isHi = user?.preferredLanguage === 'hi';
     setVoiceStatusType('SAVING');
-    setVoiceStatusMsg('Saving to transactions...');
+    setVoiceStatusMsg(isHi ? 'सहेजा जा रहा है...' : 'Saving to transactions...');
 
     try {
       const res = await parseVoiceMutation.mutateAsync({
@@ -99,6 +101,7 @@ export const RootNavigator: React.FC = () => {
         audioBase64: params.audioBase64,
         audioMimeType: params.audioMimeType,
         autoSave: true,
+        preferredLanguage: user?.preferredLanguage,
       });
 
       setVoiceStatusType('SUCCESS');
@@ -106,7 +109,9 @@ export const RootNavigator: React.FC = () => {
       const sign =
         s?.intent === 'INCOME' || s?.intent === 'UDHAAR_REPAYMENT' ? '+' : '-';
       setVoiceStatusMsg(
-        `✓ Saved: ${s?.title || 'Entry'} (${sign}${s?.amountFormatted || ''})`
+        isHi
+          ? `✓ सहेजा गया: ${s?.title || 'खर्च'} (${sign}${s?.amountFormatted || ''})`
+          : `✓ Saved: ${s?.title || 'Expense'} (${sign}${s?.amountFormatted || ''})`
       );
 
       setTimeout(() => {
@@ -114,7 +119,7 @@ export const RootNavigator: React.FC = () => {
       }, 2500);
     } catch (err: unknown) {
       setVoiceStatusType('ERROR');
-      const msg = err instanceof Error ? err.message : 'Could not save entry';
+      const msg = err instanceof Error ? err.message : (isHi ? 'एंट्री सहेजी नहीं जा सकी' : 'Could not save entry');
       setVoiceStatusMsg(`⚠️ ${msg}`);
       setTimeout(() => {
         setVoiceStatusMsg(null);
@@ -205,9 +210,10 @@ export const RootNavigator: React.FC = () => {
    * No intermediate modals, popups, or confirmation screens.
    */
   const startRecording = async () => {
+    const isHi = user?.preferredLanguage === 'hi';
     latestTranscriptRef.current = '';
     setVoiceStatusType('LISTENING');
-    setVoiceStatusMsg('Listening... Speak now');
+    setVoiceStatusMsg(isHi ? 'सुन रहे हैं... बोलिए' : 'Listening... Speak now');
 
     // 1. Browser Web Speech Recognition (Chrome / Android Browser)
     if (Platform.OS === 'web') {
@@ -218,14 +224,14 @@ export const RootNavigator: React.FC = () => {
       if (SpeechRecognition) {
         try {
           const recognition = new SpeechRecognition();
-          recognition.lang = 'en-IN'; // Indian English / Hinglish
+          recognition.lang = isHi ? 'hi-IN' : 'en-IN';
           recognition.continuous = false;
           recognition.interimResults = true;
 
           recognition.onstart = () => {
             setIsRecording(true);
             setVoiceStatusType('LISTENING');
-            setVoiceStatusMsg('Listening... Speak now');
+            setVoiceStatusMsg(isHi ? 'सुन रहे हैं... बोलिए' : 'Listening... Speak now');
           };
 
           recognition.onresult = (event: any) => {
@@ -235,7 +241,7 @@ export const RootNavigator: React.FC = () => {
             }
             const trimmed = transcript.replace(/\s+/g, ' ').trim();
             latestTranscriptRef.current = trimmed;
-            setVoiceStatusMsg(`"${trimmed}" (tap to save)`);
+            setVoiceStatusMsg(`"${trimmed}"`);
 
             // Auto-save after 1.8 seconds of natural silence pause
             if (silenceTimerRef.current) {
@@ -309,7 +315,7 @@ export const RootNavigator: React.FC = () => {
       nativeRecorderRef.current = recorder;
       setIsRecording(true);
       setVoiceStatusType('LISTENING');
-      setVoiceStatusMsg('Listening... Tap mic when done');
+      setVoiceStatusMsg(isHi ? 'सुन रहे हैं... काम पूरा होने पर माइक दबाएं' : 'Listening... Tap mic when done');
     } catch (err: unknown) {
       setIsRecording(false);
       setVoiceStatusType('ERROR');
@@ -332,6 +338,8 @@ export const RootNavigator: React.FC = () => {
   if (!user) {
     return <AuthScreen />;
   }
+
+  const isHi = user.preferredLanguage === 'hi';
 
   return (
     <SafeAreaView style={styles.outerViewport}>
@@ -422,7 +430,7 @@ export const RootNavigator: React.FC = () => {
                   },
                 ]}
               >
-                Home
+                {isHi ? 'होम' : 'Home'}
               </Text>
             </TouchableOpacity>
 
@@ -456,7 +464,7 @@ export const RootNavigator: React.FC = () => {
                   isRecording && { color: '#DC2626', fontWeight: '700' },
                 ]}
               >
-                {isRecording ? 'Listening' : 'Voice'}
+                {isRecording ? (isHi ? 'सुन रहे हैं' : 'Listening') : (isHi ? 'आवाज़' : 'Voice')}
               </Text>
             </View>
 
@@ -481,11 +489,17 @@ export const RootNavigator: React.FC = () => {
                   },
                 ]}
               >
-                Ledger
+                {isHi ? 'खाता' : 'Ledger'}
               </Text>
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Mandatory Onboarding Language Selection Modal (Shown on First Login if not chosen) */}
+        <LanguagePreferenceModal
+          visible={!hasSelectedLanguage}
+          mandatory={true}
+        />
       </View>
     </SafeAreaView>
   );

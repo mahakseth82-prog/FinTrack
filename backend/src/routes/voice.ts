@@ -1,7 +1,11 @@
 import { Router, Response } from 'express';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
-import { parseVoiceOrTextWithGemini } from '../services/geminiVoiceService';
+import {
+  parseVoiceOrTextWithGemini,
+  cleanAndSanitizeScript,
+  LanguagePreference,
+} from '../services/geminiVoiceService';
 import {
   rupeesToPaise,
   paiseToRupees,
@@ -10,6 +14,27 @@ import {
 } from '../utils/paise';
 
 const router = Router();
+
+async function resolveUserLanguage(
+  req: AuthenticatedRequest,
+  explicitLang?: string
+): Promise<LanguagePreference> {
+  if (explicitLang === 'hi' || explicitLang === 'HINDI') return 'hi';
+  if (explicitLang === 'en' || explicitLang === 'ENGLISH') return 'en';
+
+  if (!req.db || !req.userId) return 'en';
+
+  const { data } = await req.db
+    .from('users_profile')
+    .select('preferred_language')
+    .eq('id', req.userId)
+    .maybeSingle();
+
+  if (data?.preferred_language === 'HINDI' || data?.preferred_language === 'hi') {
+    return 'hi';
+  }
+  return 'en';
+}
 
 async function resolveWorkspace(
   req: AuthenticatedRequest
@@ -60,6 +85,10 @@ function mapDraftRowToDto(row: Record<string, any>) {
     extractedAmountRupees: amountPaise !== null ? paiseToRupees(amountPaise) : null,
     extractedAmountFormatted: amountPaise !== null ? formatINR(amountPaise) : null,
     extractedContactName: row.extracted_contact_name || null,
+    normalizedTitle:
+      row.structured_payload?.normalized_title ||
+      row.extracted_contact_name ||
+      null,
     matchedContactId: row.matched_contact_id || null,
     extractedCategoryName: row.extracted_category_name || null,
     extractedDueDate: row.extracted_due_date || null,
@@ -77,6 +106,10 @@ function mapDraftRowToDto(row: Record<string, any>) {
 /**
  * Shared deterministic ledger writer: saves a parsed voice/text draft directly
  * to `transactions` (Passbook) or `udhaar_obligations` + `udhaar_ledger_entries` (Udhaar Khata).
+ * STRICT RULES:
+ * 1. Forbid Urdu script on all fields.
+ * 2. Preserve specific item spoken (e.g., "Clothes Purchase", "Milk & Bread", "Credit Given - Ravi").
+ * 3. Never save generic placeholders like "Entry" or "Expense".
  */
 async function commitDraftToLedger(params: {
   db: SupabaseClient;
@@ -85,12 +118,14 @@ async function commitDraftToLedger(params: {
   overrides?: {
     intent?: string;
     amountRupees?: string | number;
+    title?: string;
     contactName?: string;
     categoryName?: string;
     dueDate?: string;
     paymentVia?: string;
     description?: string;
   };
+  preferredLanguage?: LanguagePreference;
 }): Promise<{
   entityTable: string;
   entityId: string;
@@ -103,6 +138,20 @@ async function commitDraftToLedger(params: {
 }> {
   const { db, userId, draft, overrides = {} } = params;
 
+  // Resolve user language preference if not provided
+  let prefLang = params.preferredLanguage;
+  if (!prefLang) {
+    const { data: userProf } = await db
+      .from('users_profile')
+      .select('preferred_language')
+      .eq('id', userId)
+      .maybeSingle();
+    prefLang =
+      userProf?.preferred_language === 'HINDI' || userProf?.preferred_language === 'hi'
+        ? 'hi'
+        : 'en';
+  }
+
   const finalIntent = overrides.intent || draft.intent || 'EXPENSE';
   const finalAmountPaise = overrides.amountRupees
     ? rupeesToPaise(overrides.amountRupees)
@@ -112,23 +161,53 @@ async function commitDraftToLedger(params: {
     throw new Error('Valid amount in Rupees is required');
   }
 
-  const finalContactName =
-    (overrides.contactName ?? draft.extracted_contact_name)?.trim() ||
-    (overrides.categoryName ?? draft.extracted_category_name)?.trim() ||
-    'Entry';
-  const finalCategoryName =
-    (overrides.categoryName ?? draft.extracted_category_name)?.trim() ||
-    'General';
+  // Derive specific title: Never generic "Entry" or "Expense"
+  const rawTitle =
+    overrides.title ||
+    overrides.contactName ||
+    draft.structured_payload?.normalized_title ||
+    draft.normalized_title ||
+    draft.extracted_contact_name ||
+    draft.extracted_category_name ||
+    (prefLang === 'hi' ? 'दैनिक खर्च' : 'Expense');
+
+  let finalTitle = cleanAndSanitizeScript(rawTitle, prefLang);
+  if (
+    !finalTitle ||
+    finalTitle.toLowerCase() === 'entry' ||
+    finalTitle.toLowerCase() === 'expense' ||
+    finalTitle.toLowerCase() === 'transaction'
+  ) {
+    finalTitle =
+      cleanAndSanitizeScript(draft.extracted_category_name || '', prefLang) ||
+      (prefLang === 'hi' ? 'दैनिक खर्च' : 'Daily Expense');
+  }
+
+  // Contact name for udhaar or merchant
+  const rawContact =
+    overrides.contactName ||
+    draft.extracted_contact_name ||
+    finalTitle;
+  const finalContactName = cleanAndSanitizeScript(rawContact, prefLang);
+
+  const finalCategoryName = cleanAndSanitizeScript(
+    (overrides.categoryName ?? draft.extracted_category_name)?.trim() || 'General',
+    prefLang
+  );
+
   const finalDueDate =
     overrides.dueDate ||
     draft.extracted_due_date ||
     new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+
   const finalPaymentVia = overrides.paymentVia || draft.payment_via || 'UPI';
-  const finalDescription =
+
+  const rawDescription =
     overrides.description ||
     draft.structured_payload?.description ||
     draft.raw_input_text ||
-    finalContactName;
+    finalTitle;
+  const finalDescription = cleanAndSanitizeScript(rawDescription, prefLang);
 
   let createdEntityTable = 'transactions';
   let createdEntityId = draft.id;
@@ -169,7 +248,7 @@ async function commitDraftToLedger(params: {
         kind: finalIntent,
         amount_paise: finalAmountPaise,
         payment_via: finalPaymentVia,
-        merchant_or_payee: finalContactName,
+        merchant_or_payee: finalTitle,
         description: finalDescription,
         source_draft_id: draft.id,
       })
@@ -310,7 +389,7 @@ async function commitDraftToLedger(params: {
           remaining_paise: finalAmountPaise,
           status: 'OPEN',
           due_date: finalDueDate,
-          title_or_note: finalDescription,
+          title_or_note: finalTitle,
         })
         .select('id')
         .single();
@@ -357,6 +436,7 @@ async function commitDraftToLedger(params: {
       draftId: draft.id,
       intent: finalIntent,
       amountPaise: finalAmountPaise,
+      title: finalTitle,
     },
   });
 
@@ -364,7 +444,7 @@ async function commitDraftToLedger(params: {
     entityTable: createdEntityTable,
     entityId: createdEntityId,
     intent: finalIntent,
-    title: finalContactName,
+    title: finalTitle,
     amountPaise: finalAmountPaise,
     amountFormatted: formatINR(finalAmountPaise),
     paymentVia: finalPaymentVia,
@@ -379,12 +459,11 @@ async function commitDraftToLedger(params: {
 router.get('/drafts', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const ws = await resolveWorkspace(req);
-
     const { data, error } = await req.db!
       .from('ingestion_drafts')
       .select('*')
       .eq('workspace_id', ws.id)
-      .in('status', ['NEEDS_CLARIFICATION', 'PENDING_CONFIRMATION'])
+      .in('status', ['PENDING_CONFIRMATION', 'NEEDS_CLARIFICATION'])
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -404,9 +483,9 @@ router.get('/drafts', requireAuth, async (req: AuthenticatedRequest, res: Respon
 
 /**
  * POST /api/v1/voice/parse
- * Parses Hindi/Hinglish/English audio or spoken text using Gemini AI + deterministic fallback,
- * computes integer paise in code, and AUTOMATICALLY saves to Passbook / Udhaar Khata
- * whenever a valid amount is present (no extra form required).
+ * Parses Hindi/Hinglish/English audio or spoken text using Groq Whisper + LLM + Gemini AI,
+ * strictly enforces user's preferred language, strictly bans Urdu script, and
+ * preserves specific spoken items.
  */
 router.post(
   '/voice/parse',
@@ -414,12 +493,18 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const ws = await resolveWorkspace(req);
+      const userLang = await resolveUserLanguage(req, req.body.preferredLanguage);
       const { utteranceText, audioBase64, audioMimeType, autoSave = true } = req.body;
 
       if (!utteranceText && !audioBase64) {
         res
           .status(400)
-          .json({ error: 'Kripya kuch bolein ya likhein (e.g. "Petrol 300")' });
+          .json({
+            error:
+              userLang === 'hi'
+                ? 'कृपया कुछ बोलें या लिखें (e.g. "पेट्रोल 300" या "कपड़े 1200")'
+                : 'Kripya kuch bolein ya likhein (e.g. "Petrol 300" or "Clothes 1200")',
+          });
         return;
       }
 
@@ -429,6 +514,7 @@ router.post(
         audioBase64,
         audioMimeType,
         workspaceMode: ws.mode,
+        preferredLanguage: userLang,
         todayIsoDate,
       });
 
@@ -453,7 +539,9 @@ router.post(
 
       const needsClarification = extractedAmountPaise === null;
       const ambiguityQuestion = needsClarification
-        ? 'Kitne rupaye ki entry hai? (e.g. "Petrol 300" ya "Ravi ko 500 udhaar")'
+        ? userLang === 'hi'
+          ? 'कितने रुपये की एंट्री है? (e.g. "पेट्रोल 300" या "रवि को 500 उधार")'
+          : 'Kitne rupaye ki entry hai? (e.g. "Petrol 300" ya "Ravi ko 500 udhaar")'
         : null;
 
       const status = needsClarification
@@ -476,9 +564,11 @@ router.post(
           extracted_due_date: extracted.extractedDueDate,
           payment_via: extracted.paymentVia || 'UPI',
           ambiguity_question: ambiguityQuestion,
-          ai_confidence: extracted.confidence ?? 0.92,
+          ai_confidence: extracted.confidence ?? 0.95,
           structured_payload: {
             description: extracted.description,
+            normalized_title: extracted.normalized_title,
+            preferredLanguage: userLang,
           },
         })
         .select('*')
@@ -498,6 +588,7 @@ router.post(
           db: req.db!,
           userId: req.userId!,
           draft: insertedDraft,
+          preferredLanguage: userLang,
         });
 
         res.status(201).json({
@@ -535,6 +626,7 @@ router.post(
       const { draftId } = req.params;
       const { clarificationAnswer, audioBase64, audioMimeType } = req.body;
       const ws = await resolveWorkspace(req);
+      const userLang = await resolveUserLanguage(req, req.body.preferredLanguage);
 
       const { data: existingDraft, error: fErr } = await req.db!
         .from('ingestion_drafts')
@@ -554,6 +646,7 @@ router.post(
         audioBase64,
         audioMimeType,
         workspaceMode: ws.mode,
+        preferredLanguage: userLang,
         previousDraftContext: JSON.stringify({
           rawInputText: existingDraft.raw_input_text,
           intent: existingDraft.intent,
@@ -592,7 +685,9 @@ router.post(
             : null,
           structured_payload: {
             description: resolved.description,
+            normalized_title: resolved.normalized_title,
             clarificationAnswer,
+            preferredLanguage: userLang,
           },
           updated_at: new Date().toISOString(),
         })
@@ -612,6 +707,7 @@ router.post(
           db: req.db!,
           userId: req.userId!,
           draft: updatedDraft,
+          preferredLanguage: userLang,
         });
 
         res.json({
@@ -646,6 +742,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { draftId } = req.params;
+      const userLang = await resolveUserLanguage(req, req.body.preferredLanguage);
 
       const { data: draft, error: dErr } = await req.db!
         .from('ingestion_drafts')
@@ -667,9 +764,11 @@ router.post(
         db: req.db!,
         userId: req.userId!,
         draft,
+        preferredLanguage: userLang,
         overrides: {
           intent: req.body.intent,
           amountRupees: req.body.amountRupees,
+          title: req.body.title,
           contactName: req.body.contactName,
           categoryName: req.body.categoryName,
           dueDate: req.body.dueDate,

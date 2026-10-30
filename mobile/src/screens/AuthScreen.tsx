@@ -25,6 +25,7 @@ export const AuthScreen: React.FC = () => {
   const [phoneNumber, setPhoneNumber] = useState('+91 ');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState<'en' | 'hi'>('en');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSubmit = async () => {
@@ -51,7 +52,8 @@ export const AuthScreen: React.FC = () => {
         fullName.trim() || 'FinTrack User',
         phoneNumber.trim(),
         email.trim(),
-        password
+        password,
+        preferredLanguage
       );
       if (res.error) setErrorMsg(res.error);
     } else {
@@ -178,6 +180,62 @@ export const AuthScreen: React.FC = () => {
               secureTextEntry
               style={styles.input}
             />
+
+            {isSignUp && (
+              <View style={styles.langSection}>
+                <Text style={styles.label}>Language Preference / भाषा</Text>
+                <Text style={styles.langHint}>
+                  Voice entries and transaction titles will adhere to this choice.
+                </Text>
+                <View style={styles.langRow}>
+                  <TouchableOpacity
+                    onPress={() => setPreferredLanguage('en')}
+                    style={[
+                      styles.langBtn,
+                      preferredLanguage === 'en' && [
+                        styles.langBtnActive,
+                        { borderColor: palette.primaryBrown, backgroundColor: '#FAF6F0' },
+                      ],
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.langBtnText,
+                        preferredLanguage === 'en' && {
+                          color: palette.primaryBrown,
+                          fontWeight: '700',
+                        },
+                      ]}
+                    >
+                      English
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => setPreferredLanguage('hi')}
+                    style={[
+                      styles.langBtn,
+                      preferredLanguage === 'hi' && [
+                        styles.langBtnActive,
+                        { borderColor: palette.primaryBrown, backgroundColor: '#FAF6F0' },
+                      ],
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.langBtnText,
+                        preferredLanguage === 'hi' && {
+                          color: palette.primaryBrown,
+                          fontWeight: '700',
+                        },
+                      ]}
+                    >
+                      हिन्दी (Hindi)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
 
@@ -309,5 +367,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  langSection: {
+    marginTop: 12,
+  },
+  langHint: {
+    fontSize: 11,
+    color: '#64748B',
+    marginBottom: 8,
+  },
+  langRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  langBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  langBtnActive: {},
+  langBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
 });

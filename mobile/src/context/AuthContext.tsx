@@ -1,19 +1,24 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { BASE_API_URL } from '../services/api';
+
+export type AppLanguage = 'en' | 'hi';
 
 export interface FinTrackUser {
   id: string;
   fullName: string;
   phoneNumber: string;
   email: string;
-  preferredLanguage: 'HINGLISH' | 'HINDI' | 'ENGLISH';
+  preferredLanguage: AppLanguage;
 }
 
 interface AuthContextValue {
   user: FinTrackUser | null;
   isLoading: boolean;
   isSupabaseReady: boolean;
+  hasSelectedLanguage: boolean;
+  updatePreferredLanguage: (lang: AppLanguage) => Promise<void>;
   signInWithEmail: (
     email: string,
     password: string,
@@ -23,7 +28,8 @@ interface AuthContextValue {
     fullName: string,
     phoneNumber: string,
     email: string,
-    password: string
+    password: string,
+    preferredLanguage?: AppLanguage
   ) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -35,6 +41,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<FinTrackUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [hasSelectedLanguage, setHasSelectedLanguage] = useState<boolean>(true);
+
+  const syncUserProfile = async (sessionUser: any) => {
+    if (!sessionUser) {
+      setUser(null);
+      return;
+    }
+
+    let prefLang: AppLanguage = 'en';
+    let langChosenExplicitly = false;
+
+    try {
+      // Check local storage for explicit confirmation
+      const localChosen = await AsyncStorage.getItem(`fintrack_lang_chosen_${sessionUser.id}`);
+      if (localChosen) {
+        langChosenExplicitly = true;
+      }
+
+      // Query database for user profile
+      if (supabase) {
+        const { data: profile } = await supabase
+          .from('users_profile')
+          .select('preferred_language')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
+
+        if (profile?.preferred_language) {
+          if (profile.preferred_language === 'HINDI' || profile.preferred_language === 'hi') {
+            prefLang = 'hi';
+            langChosenExplicitly = true;
+          } else if (profile.preferred_language === 'ENGLISH' || profile.preferred_language === 'en') {
+            prefLang = 'en';
+            langChosenExplicitly = true;
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+
+    setUser({
+      id: sessionUser.id,
+      fullName: sessionUser.user_metadata?.full_name || 'FinTrack User',
+      phoneNumber: sessionUser.user_metadata?.phone_number || '',
+      email: sessionUser.email || '',
+      preferredLanguage: prefLang,
+    });
+    setHasSelectedLanguage(langChosenExplicitly);
+  };
 
   useEffect(() => {
     if (!supabase) {
@@ -44,31 +99,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        setUser({
-          id: session.user.id,
-          fullName:
-            session.user.user_metadata?.full_name || 'FinTrack User',
-          phoneNumber:
-            session.user.user_metadata?.phone_number || '',
-          email: session.user.email || '',
-          preferredLanguage: 'HINGLISH',
-        });
+        syncUserProfile(session.user).finally(() => setIsLoading(false));
+      } else {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (session?.user) {
-          setUser({
-            id: session.user.id,
-            fullName:
-              session.user.user_metadata?.full_name || 'FinTrack User',
-            phoneNumber:
-              session.user.user_metadata?.phone_number || '',
-            email: session.user.email || '',
-            preferredLanguage: 'HINGLISH',
-          });
+          void syncUserProfile(session.user);
         } else {
           setUser(null);
         }
@@ -79,6 +119,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       authListener.subscription.unsubscribe();
     };
   }, []);
+
+  const updatePreferredLanguage = async (lang: AppLanguage) => {
+    if (!user) return;
+
+    setUser((prev) => (prev ? { ...prev, preferredLanguage: lang } : null));
+    setHasSelectedLanguage(true);
+
+    try {
+      await AsyncStorage.setItem(`fintrack_lang_chosen_${user.id}`, lang);
+
+      // Persist to Supabase
+      if (supabase) {
+        await supabase
+          .from('users_profile')
+          .update({
+            preferred_language: lang === 'hi' ? 'HINDI' : 'ENGLISH',
+          })
+          .eq('id', user.id);
+      }
+
+      // Also persist to backend API
+      const {
+        data: { session },
+      } = await supabase!.auth.getSession();
+      if (session?.access_token) {
+        await fetch(`${BASE_API_URL}/auth/language`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ preferredLanguage: lang }),
+        });
+      }
+    } catch (err) {
+      console.warn('Could not save language preference:', err);
+    }
+  };
 
   const signInWithEmail = async (
     email: string,
@@ -100,8 +178,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         password,
       });
 
-      // If the user's account was stuck waiting for the broken confirmation email link,
-      // auto-confirm via our backend admin endpoint and retry sign-in automatically!
       if (
         error &&
         error.message.toLowerCase().includes('email not confirmed')
@@ -132,16 +208,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  /**
-   * Registers a new account using BOTH Contact Number and Gmail address via
-   * `/api/v1/auth/register` (which sets `email_confirm: true` so no broken email link is needed)
-   * and logs the user in immediately.
-   */
   const signUpWithContactAndGmail = async (
     fullName: string,
     phoneNumber: string,
     email: string,
-    password: string
+    password: string,
+    preferredLanguage: AppLanguage = 'en'
   ): Promise<{ error?: string }> => {
     if (!supabase) {
       return {
@@ -156,7 +228,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const cleanPhone = phoneNumber.trim();
       const cleanName = fullName.trim() || 'FinTrack User';
 
-      // 1. Register & auto-confirm via Backend Admin API
       const registerRes = await fetch(`${BASE_API_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,6 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           phoneNumber: cleanPhone,
           email: cleanEmail,
           password,
+          preferredLanguage,
         }),
       });
 
@@ -177,7 +249,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         };
       }
 
-      // 2. Immediately sign in with the newly confirmed credentials
       const { error: signInErr } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password,
@@ -213,6 +284,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user,
         isLoading,
         isSupabaseReady: isSupabaseConfigured,
+        hasSelectedLanguage,
+        updatePreferredLanguage,
         signInWithEmail,
         signUpWithContactAndGmail,
         signOut,

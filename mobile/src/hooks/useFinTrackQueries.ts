@@ -219,6 +219,7 @@ export function useParseVoiceDraft(workspaceId: string | null) {
       audioBase64?: string;
       audioMimeType?: string;
       autoSave?: boolean;
+      preferredLanguage?: 'en' | 'hi';
     }) =>
       apiFetch<{
         autoSaved?: boolean;
