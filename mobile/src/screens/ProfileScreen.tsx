@@ -6,16 +6,19 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { MinimalIcon } from '../components/MinimalIcon';
 import { LanguagePreferenceModal } from '../components/LanguagePreferenceModal';
+import { DocumentVaultModal } from '../components/DocumentVaultModal';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 
 export const ProfileScreen: React.FC = () => {
   const { user, signOut } = useAuth();
   const { mode, setMode } = useFinTrackTheme();
   const [isLangModalOpen, setIsLangModalOpen] = useState(false);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -109,6 +112,27 @@ export const ProfileScreen: React.FC = () => {
         </View>
       </View>
 
+      {/* Vault & Storage */}
+      <Text style={styles.sectionHeader}>Vault & Documents</Text>
+      <View style={styles.card}>
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={() => setIsVaultModalOpen(true)}
+          style={styles.settingRow}
+        >
+          <View style={styles.settingLeft}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="folder-open-outline" size={18} color="#0284C7" />
+              <Text style={styles.settingTitle}>Documents & Bills Vault</Text>
+            </View>
+            <Text style={styles.settingSubtext}>
+              Signed backups of bills, invoices, insurance & warranties
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+        </TouchableOpacity>
+      </View>
+
       {/* Security & About */}
       <Text style={styles.sectionHeader}>App & Security</Text>
       <View style={styles.card}>
@@ -140,6 +164,12 @@ export const ProfileScreen: React.FC = () => {
       <LanguagePreferenceModal
         visible={isLangModalOpen}
         onClose={() => setIsLangModalOpen(false)}
+      />
+
+      {/* Digital Document Vault Modal */}
+      <DocumentVaultModal
+        visible={isVaultModalOpen}
+        onClose={() => setIsVaultModalOpen(false)}
       />
     </ScrollView>
   );

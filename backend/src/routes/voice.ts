@@ -93,7 +93,7 @@ function mapDraftRowToDto(row: Record<string, any>) {
     matchedContactId: row.matched_contact_id || null,
     extractedCategoryName: row.extracted_category_name || null,
     extractedDueDate: row.extracted_due_date || null,
-    paymentVia: row.payment_via || 'UPI',
+    paymentVia: row.payment_via || 'UNSPECIFIED',
     ambiguityQuestion: row.ambiguity_question || null,
     aiConfidence: Number(row.ai_confidence || 0.9),
     description:
@@ -201,7 +201,7 @@ async function commitDraftToLedger(params: {
     draft.extracted_due_date ||
     new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
-  const finalPaymentVia = overrides.paymentVia || draft.payment_via || 'UPI';
+  const finalPaymentVia = overrides.paymentVia || draft.payment_via || 'UNSPECIFIED';
 
   const rawDescription =
     overrides.description ||

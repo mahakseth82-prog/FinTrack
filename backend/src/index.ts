@@ -6,6 +6,7 @@ import ledgerRoutes from './routes/ledger';
 import voiceRoutes from './routes/voice';
 import reminderRoutes from './routes/reminders';
 import ingestionRoutes from './routes/ingestion';
+import vaultRoutes from './routes/vault';
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api/v1', ledgerRoutes);
 app.use('/api/v1', voiceRoutes);
 app.use('/api/v1', reminderRoutes);
 app.use('/api/v1', ingestionRoutes);
+app.use('/api/v1', vaultRoutes);
 
 if (require.main === module) {
   app.listen(env.PORT, '0.0.0.0', () => {

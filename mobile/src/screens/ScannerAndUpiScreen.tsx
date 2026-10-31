@@ -74,12 +74,20 @@ export const ScannerAndUpiScreen: React.FC<ScannerAndUpiScreenProps> = ({
         mimeType: asset.mimeType || 'image/jpeg',
       });
 
-      setStatusFeedback(
-        `✅ Bill Scanned! Extracted ${
-          res.draft.extractedAmountFormatted || 'Draft'
-        } from ${res.draft.extractedContactName || 'Bill'}.`
-      );
-      onOpenDraftForConfirmation(res.draft);
+      if (res.draft) {
+        setStatusFeedback(
+          `✅ Bill Scanned! Extracted ${
+            res.draft.extractedAmountFormatted || 'Draft'
+          } from ${res.draft.extractedContactName || 'Bill'}.`
+        );
+        onOpenDraftForConfirmation(res.draft);
+      } else if (res.savedSummary) {
+        setStatusFeedback(
+          `✅ Bill Scanned & Saved! Extracted ${
+            res.savedSummary.amountFormatted || 'Spend'
+          } from ${res.savedSummary.title || 'Bill'}.`
+        );
+      }
     } catch (err: unknown) {
       setErrorFeedback(
         err instanceof Error ? err.message : 'Bill OCR scan failed.'

@@ -2,7 +2,13 @@ import { Paise } from '../utils/paise';
 import { WorkspaceMode } from '../theme/colors';
 
 export type TransactionKind = 'EXPENSE' | 'INCOME';
-export type PaymentChannel = 'UPI' | 'CASH' | 'CARD' | 'BANK_TRANSFER';
+export type PaymentChannel =
+  | 'UPI'
+  | 'CASH'
+  | 'CARD'
+  | 'BANK_TRANSFER'
+  | 'UNSPECIFIED'
+  | null;
 export type ObligationDirection = 'RECEIVABLE' | 'PAYABLE';
 export type ObligationStatus = 'OPEN' | 'PARTIALLY_PAID' | 'SETTLED';
 export type ContactKind = 'CUSTOMER' | 'SUPPLIER' | 'FRIEND';
@@ -20,6 +26,29 @@ export type DraftStatus =
   | 'DISMISSED';
 
 export type AppLanguage = 'en' | 'hi';
+
+export type DocumentVaultType =
+  | 'BILL'
+  | 'INVOICE'
+  | 'INSURANCE'
+  | 'WARRANTY'
+  | 'RC_BOOK'
+  | 'OTHER';
+
+export interface DocumentVaultDto {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  title: string;
+  docType: DocumentVaultType;
+  fileUrl: string;
+  filePath: string | null;
+  expiryDate: string | null;
+  linkedTransactionId: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface IngestionDraftDto {
   id: string;
@@ -40,6 +69,8 @@ export interface IngestionDraftDto {
   ambiguityQuestion: string | null;
   aiConfidence: number;
   description: string;
+  receiptImagePath?: string | null;
+  receiptImageUrl?: string | null;
   createdAt: string;
 }
 
@@ -89,6 +120,8 @@ export interface TransactionDto {
   paymentVia: PaymentChannel;
   sourceType?: string;
   isImported?: boolean;
+  receiptImagePath?: string | null;
+  receiptImageUrl?: string | null;
   occurredAt: string;
 }
 

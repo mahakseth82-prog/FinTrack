@@ -24,6 +24,7 @@ import {
   UdhaarLedgerItemDto,
   ObligationDirection,
   ContactKind,
+  PaymentChannel,
 } from '../types/ledger';
 import { formatINR } from '../utils/paise';
 import {
@@ -36,6 +37,7 @@ import {
   ReminderTargetInfo,
 } from '../components/PoliteReminderModal';
 import { ManualTransactionModal } from '../components/ManualTransactionModal';
+import { BillScannerModal, ScannedBillResult } from '../components/BillScannerModal';
 
 type LedgerSubFilter = 'ALL' | 'OVERDUE' | 'DUE_TODAY';
 
@@ -64,12 +66,17 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
 
   // Scanner & Manual Add State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [isScanningBill, setIsScanningBill] = useState(false);
   const [prefillValues, setPrefillValues] = useState<{
     amountRupees?: number;
     merchantOrPayee?: string;
     categoryName?: string;
     kind?: 'EXPENSE' | 'INCOME';
+    paymentVia?: PaymentChannel;
+    receiptImagePath?: string | null;
+    receiptImageUrl?: string | null;
+    description?: string;
   } | undefined>(undefined);
 
   // New Credit Account Modal State
@@ -158,45 +165,22 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
     });
   };
 
-  const handleScanBill = async () => {
-    try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      const res = perm.granted
-        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
-        : await ImagePicker.launchImageLibraryAsync({
-            base64: true,
-            quality: 0.7,
-          });
+  const handleScanBill = () => {
+    setIsScannerModalOpen(true);
+  };
 
-      if (res.canceled || !res.assets?.[0]?.base64) return;
-
-      setIsScanningBill(true);
-      const scanRes = await scanBillMutation.mutateAsync({
-        imageBase64: res.assets[0].base64,
-        mimeType: res.assets[0].mimeType || 'image/jpeg',
-      });
-      setIsScanningBill(false);
-
-      if (scanRes?.draft) {
-        setPrefillValues({
-          amountRupees: scanRes.draft.extractedAmountRupees || undefined,
-          merchantOrPayee:
-            scanRes.draft.extractedContactName ||
-            scanRes.draft.normalizedTitle ||
-            '',
-          categoryName:
-            scanRes.draft.extractedCategoryName || 'Business Sale',
-          kind: scanRes.draft.intent === 'INCOME' ? 'INCOME' : 'EXPENSE',
-        });
-        setIsManualModalOpen(true);
-      } else {
-        Alert.alert('Bill Scanned', 'Receipt scanned successfully!');
-      }
-    } catch (err: unknown) {
-      setIsScanningBill(false);
-      const msg = err instanceof Error ? err.message : 'Failed to scan bill';
-      Alert.alert('Scan Failed', msg);
-    }
+  const handleBillScanned = (res: ScannedBillResult) => {
+    setPrefillValues({
+      amountRupees: res.amountRupees,
+      merchantOrPayee: res.merchantOrPayee,
+      categoryName: res.categoryName || 'Dukaan Stock / Maal',
+      kind: 'EXPENSE',
+      paymentVia: res.paymentVia,
+      receiptImagePath: res.receiptImagePath,
+      receiptImageUrl: res.receiptImageUrl,
+      description: res.summaryNote || '',
+    });
+    setIsManualModalOpen(true);
   };
 
   const handleOpenAddAccount = (dir: ObligationDirection) => {
@@ -791,6 +775,13 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
             setPrefillValues(undefined);
           }}
           initialValues={prefillValues}
+        />
+
+        {/* Bill Scanner & UPI QR Modal */}
+        <BillScannerModal
+          visible={isScannerModalOpen}
+          onClose={() => setIsScannerModalOpen(false)}
+          onBillScanned={handleBillScanned}
         />
 
         {/* Modal: Polite Reminder Target */}

@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import crypto from 'crypto';
+import { supabaseAdmin } from '../config/supabase';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
 import { extractBillWithGeminiVision } from '../services/geminiOcrService';
 import { rupeesToPaise, paiseToRupees, formatINR } from '../utils/paise';
@@ -192,9 +193,45 @@ router.post(
         return;
       }
 
+      const detectedPayment = ocrResult.paymentVia;
+      const validPayments = ['UPI', 'CARD', 'BANK_TRANSFER', 'CASH'];
+      const paymentVia =
+        detectedPayment && validPayments.includes(detectedPayment) && detectedPayment !== 'UNSPECIFIED'
+          ? detectedPayment
+          : 'UNSPECIFIED';
+
       const merchantName = ocrResult.merchantName || 'Scanned Bill';
       const categoryName = ocrResult.suggestedCategory || 'Grocery & Rashan';
-      const paymentVia = ocrResult.paymentVia || 'CASH';
+
+      // 1. Upload receipt image to Supabase Storage if imageBase64 is present
+      let receiptImagePath: string | null = null;
+      let receiptImageUrl: string | null = null;
+
+      if (imageBase64) {
+        try {
+          const ext = mimeType && mimeType.includes('pdf') ? 'pdf' : 'jpg';
+          const fileName = `${req.userId}/receipt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+          const buffer = Buffer.from(imageBase64, 'base64');
+          const { error: uploadErr } = await supabaseAdmin.storage
+            .from('documents-vault')
+            .upload(fileName, buffer, {
+              contentType: mimeType || 'image/jpeg',
+              upsert: true,
+            });
+
+          if (!uploadErr) {
+            receiptImagePath = fileName;
+            const { data: signed } = await supabaseAdmin.storage
+              .from('documents-vault')
+              .createSignedUrl(fileName, 86400 * 7); // 7-day signed URL
+            if (signed?.signedUrl) {
+              receiptImageUrl = signed.signedUrl;
+            }
+          }
+        } catch (storageErr) {
+          console.warn('Receipt storage upload error:', storageErr);
+        }
+      }
 
       const categoryId = await resolveOrCreateCategory({
         db: req.db!,
@@ -215,6 +252,8 @@ router.post(
           payment_via: paymentVia,
           merchant_or_payee: merchantName,
           description: ocrResult.summaryNote || `Scanned bill from ${merchantName}`,
+          receipt_image_path: receiptImagePath,
+          receipt_image_url: receiptImageUrl,
         })
         .select('*')
         .single();
@@ -226,6 +265,38 @@ router.post(
         return;
       }
 
+      // If requested, also store as a document in documents_vault
+      const { saveToVault, vaultTitle, vaultDocType = 'BILL', vaultExpiryDate } = req.body;
+      let vaultDocId: string | null = null;
+
+      if (saveToVault && receiptImagePath) {
+        try {
+          const { data: vaultDoc } = await req.db!
+            .from('documents_vault')
+            .insert({
+              workspace_id: workspaceId,
+              user_id: req.userId!,
+              title: vaultTitle?.trim() || `${merchantName} Bill`,
+              doc_type: vaultDocType,
+              file_url: receiptImageUrl || '',
+              file_path: receiptImagePath,
+              expiry_date: vaultExpiryDate || null,
+              linked_transaction_id: tx.id,
+              metadata: {
+                totalRupees: ocrResult.totalRupees,
+                merchantName,
+                itemsCount: ocrResult.lineItems?.length || 0,
+              },
+            })
+            .select('id')
+            .single();
+
+          vaultDocId = vaultDoc?.id || null;
+        } catch (vaultErr) {
+          console.warn('Failed to insert into documents_vault:', vaultErr);
+        }
+      }
+
       res.status(201).json({
         autoSaved: true,
         savedSummary: {
@@ -235,6 +306,9 @@ router.post(
           amountFormatted: formatINR(amountPaise),
           categoryName,
           paymentVia,
+          receiptImagePath,
+          receiptImageUrl,
+          vaultDocId,
         },
         ocrSummary: ocrResult,
       });

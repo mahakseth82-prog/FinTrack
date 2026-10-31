@@ -14,7 +14,7 @@ export interface GeminiBillOcrResult {
   billDate: string | null;
   totalRupees: number | null;
   suggestedCategory: string;
-  paymentVia: 'UPI' | 'CASH' | 'CARD' | 'BANK_TRANSFER';
+  paymentVia: 'UPI' | 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'UNSPECIFIED' | null;
   lineItems: ExtractedBillItem[];
   summaryNote: string;
   confidence: number;
@@ -44,8 +44,10 @@ const BILL_OCR_SCHEMA: Schema = {
     },
     paymentVia: {
       type: Type.STRING,
-      enum: ['UPI', 'CASH', 'CARD', 'BANK_TRANSFER'],
-      description: 'Payment mode detected on receipt, default UPI or CASH.',
+      enum: ['UPI', 'CASH', 'CARD', 'BANK_TRANSFER', 'UNSPECIFIED'],
+      nullable: true,
+      description:
+        'Payment mode ONLY if explicitly printed on receipt (e.g. "PAID VIA UPI", "CASH PAID", "CARD"). If not explicitly printed, you MUST return "UNSPECIFIED". Strictly do NOT default to CASH.',
     },
     lineItems: {
       type: Type.ARRAY,
@@ -90,7 +92,9 @@ export async function extractBillWithGeminiVision(params: {
   const systemPrompt = `You are FinTrack's Indian Receipt & Kirana Parchi OCR reader.
 Active workspace mode: ${params.workspaceMode}.
 Extract the shop/merchant name, bill date (YYYY-MM-DD), grand total in Rupees (totalRupees), line items, and a concise Hinglish summaryNote.
-Never invent totals if unreadable; set totalRupees to null if completely missing.`;
+Never invent totals if unreadable; set totalRupees to null if completely missing.
+STRICT PAYMENT METHOD RULE:
+Only set paymentVia if the payment mode (UPI, CASH, CARD, BANK_TRANSFER) is explicitly and visibly printed on the bill/receipt. If it is NOT explicitly printed, you MUST return "UNSPECIFIED". Under NO circumstances should you default or assume "CASH".`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',

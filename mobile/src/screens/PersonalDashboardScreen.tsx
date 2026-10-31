@@ -19,11 +19,12 @@ import {
   useTransactions,
   useScanBillOcr,
 } from '../hooks/useFinTrackQueries';
-import { TransactionDto } from '../types/ledger';
+import { TransactionDto, PaymentChannel } from '../types/ledger';
 import { formatINR } from '../utils/paise';
 import { SkeletonLoader, EmptyStateCard } from '../components/QueryStateViews';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
 import { ManualTransactionModal } from '../components/ManualTransactionModal';
+import { BillScannerModal, ScannedBillResult } from '../components/BillScannerModal';
 
 interface PersonalDashboardProps {
   onOpenContactDetail?: (contactId: string) => void;
@@ -118,11 +119,16 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
 
   // Manual Add & Bill Scan State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [prefillValues, setPrefillValues] = useState<{
     amountRupees?: number;
     merchantOrPayee?: string;
     categoryName?: string;
     kind?: 'EXPENSE' | 'INCOME';
+    paymentVia?: PaymentChannel;
+    receiptImagePath?: string | null;
+    receiptImageUrl?: string | null;
+    description?: string;
   } | undefined>(undefined);
   const [isScanningBill, setIsScanningBill] = useState(false);
 
@@ -300,48 +306,22 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
       });
   }, [allTransactions, searchQuery]);
 
-  const handleScanBill = async () => {
-    try {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      const res = perm.granted
-        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
-        : await ImagePicker.launchImageLibraryAsync({
-            base64: true,
-            quality: 0.7,
-          });
+  const handleScanBill = () => {
+    setIsScannerModalOpen(true);
+  };
 
-      if (res.canceled || !res.assets?.[0]?.base64) return;
-
-      setIsScanningBill(true);
-      const ocrResult = await scanBillMutation.mutateAsync({
-        imageBase64: res.assets[0].base64,
-        mimeType: res.assets[0].mimeType || 'image/jpeg',
-      });
-      setIsScanningBill(false);
-
-      if (ocrResult?.draft) {
-        setPrefillValues({
-          amountRupees: ocrResult.draft.extractedAmountRupees || undefined,
-          merchantOrPayee:
-            ocrResult.draft.extractedContactName ||
-            ocrResult.draft.normalizedTitle ||
-            '',
-          categoryName:
-            ocrResult.draft.extractedCategoryName || 'Bills & Utilities',
-          kind: 'EXPENSE',
-        });
-        setIsManualModalOpen(true);
-      } else {
-        Alert.alert(
-          'Bill Scanned',
-          'Receipt scanned and entry saved to ledger!'
-        );
-      }
-    } catch (err: unknown) {
-      setIsScanningBill(false);
-      const msg = err instanceof Error ? err.message : 'Failed to scan bill';
-      Alert.alert('Scan Failed', msg);
-    }
+  const handleBillScanned = (res: ScannedBillResult) => {
+    setPrefillValues({
+      amountRupees: res.amountRupees,
+      merchantOrPayee: res.merchantOrPayee,
+      categoryName: res.categoryName || 'Grocery & Rashan',
+      kind: 'EXPENSE',
+      paymentVia: res.paymentVia,
+      receiptImagePath: res.receiptImagePath,
+      receiptImageUrl: res.receiptImageUrl,
+      description: res.summaryNote || '',
+    });
+    setIsManualModalOpen(true);
   };
 
   return (
@@ -509,10 +489,20 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
                           <Text style={styles.txMerchantName} numberOfLines={1}>
                             {item.merchantOrPayee}
                           </Text>
-                          <Text style={styles.txMetaText}>
-                            {item.categoryName} • {formattedTime} •{' '}
-                            {item.paymentVia || 'UPI'}
-                          </Text>
+                          <View style={styles.txMetaRow}>
+                            <Text style={styles.txMetaText}>
+                              {item.categoryName} • {formattedTime}
+                              {item.paymentVia && item.paymentVia !== 'UNSPECIFIED'
+                                ? ` • ${item.paymentVia}`
+                                : (item.receiptImagePath || item.receiptImageUrl) ? ' • Bill' : ''}
+                            </Text>
+                            {Boolean(item.receiptImagePath || item.receiptImageUrl) && (
+                              <View style={styles.paperclipBadge}>
+                                <Ionicons name="attach" size={12} color="#0284C7" />
+                                <Text style={styles.paperclipText}>Bill</Text>
+                              </View>
+                            )}
+                          </View>
                         </View>
                       </View>
 
@@ -553,6 +543,13 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             setPrefillValues(undefined);
           }}
           initialValues={prefillValues}
+        />
+
+        {/* Bill Scanner & UPI QR Modal */}
+        <BillScannerModal
+          visible={isScannerModalOpen}
+          onClose={() => setIsScannerModalOpen(false)}
+          onBillScanned={handleBillScanned}
         />
       </ScrollView>
     </View>
@@ -800,7 +797,28 @@ const styles = StyleSheet.create({
   txMetaText: {
     fontSize: 11,
     color: '#64748B',
+  },
+  txMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 2,
+  },
+  paperclipBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    gap: 2,
+  },
+  paperclipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#0284C7',
   },
   txRightBlock: {
     alignItems: 'flex-end',

@@ -27,6 +27,8 @@ interface ManualTransactionModalProps {
     kind?: TransactionKind;
     paymentVia?: PaymentChannel;
     description?: string;
+    receiptImagePath?: string | null;
+    receiptImageUrl?: string | null;
   };
 }
 
@@ -54,6 +56,7 @@ const PAYMENT_MODES: { label: string; value: PaymentChannel }[] = [
   { label: 'Cash', value: 'CASH' },
   { label: 'Card', value: 'CARD' },
   { label: 'Bank', value: 'BANK_TRANSFER' },
+  { label: 'Not Specified', value: 'UNSPECIFIED' },
 ];
 
 export const ManualTransactionModal: React.FC<ManualTransactionModalProps> = ({
@@ -114,6 +117,8 @@ export const ManualTransactionModal: React.FC<ManualTransactionModalProps> = ({
         description: description.trim() || '',
         amountRupees: parsedAmount,
         paymentVia,
+        receiptImagePath: initialValues?.receiptImagePath || null,
+        receiptImageUrl: initialValues?.receiptImageUrl || null,
       });
 
       onClose();
@@ -192,6 +197,14 @@ export const ManualTransactionModal: React.FC<ManualTransactionModalProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {/* Attached Receipt Notice if populated from Bill Scanner */}
+            {Boolean(initialValues?.receiptImageUrl || initialValues?.receiptImagePath) && (
+              <View style={styles.attachedReceiptBadge}>
+                <Ionicons name="attach-outline" size={16} color="#0284C7" />
+                <Text style={styles.attachedReceiptText}>Scanned Bill / Receipt Image Attached</Text>
+              </View>
+            )}
 
             {/* Hero Amount Field */}
             <View style={styles.fieldBlock}>
@@ -514,5 +527,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  attachedReceiptBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 14,
+  },
+  attachedReceiptText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0369A1',
   },
 });

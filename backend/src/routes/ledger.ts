@@ -173,6 +173,8 @@ router.get(
             categoryName: cat?.name || 'General',
             categoryIcon: cat?.icon_name || 'receipt-outline',
             occurredAt: t.occurred_at,
+            receiptImagePath: t.receipt_image_path || null,
+            receiptImageUrl: t.receipt_image_url || null,
           };
         }),
       });
@@ -279,6 +281,8 @@ router.post(
         description,
         amountRupees,
         paymentVia = 'UPI',
+        receiptImagePath,
+        receiptImageUrl,
       } = req.body;
 
       const amountPaise = rupeesToPaise(amountRupees);
@@ -322,6 +326,8 @@ router.post(
           payment_via: paymentVia,
           merchant_or_payee: merchantOrPayee,
           description,
+          receipt_image_path: receiptImagePath || null,
+          receipt_image_url: receiptImageUrl || null,
         })
         .select('*')
         .single();
@@ -426,6 +432,8 @@ router.get(
           categoryName: cat?.name || 'General',
           categoryIcon: cat?.icon_name || 'receipt-outline',
           occurredAt: t.occurred_at,
+          receiptImagePath: t.receipt_image_path || null,
+          receiptImageUrl: t.receipt_image_url || null,
         };
       });
 

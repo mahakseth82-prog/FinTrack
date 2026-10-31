@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFinTrackTheme } from '../context/ThemeContext';
@@ -36,6 +37,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showReceiptZoom, setShowReceiptZoom] = useState(false);
 
   // Edit form state
   const [editMerchant, setEditMerchant] = useState('');
@@ -155,13 +157,47 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Payment Method</Text>
-                <Text style={styles.detailValue}>{transaction.paymentVia || 'UPI'}</Text>
+                <Text style={styles.detailValue}>
+                  {transaction.paymentVia && transaction.paymentVia !== 'UNSPECIFIED'
+                    ? transaction.paymentVia
+                    : 'Not Specified'}
+                </Text>
               </View>
 
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Source</Text>
-                <Text style={styles.detailValue}>{transaction.sourceType || 'VOICE / MANUAL'}</Text>
+                <Text style={styles.detailValue}>
+                  {transaction.receiptImagePath || transaction.receiptImageUrl
+                    ? 'BILL SCANNER'
+                    : transaction.sourceType || 'VOICE / MANUAL'}
+                </Text>
               </View>
+
+              {/* Attached Receipt Thumbnail */}
+              {Boolean(transaction.receiptImageUrl || transaction.receiptImagePath) && (
+                <View style={styles.receiptRow}>
+                  <Text style={styles.detailLabel}>Bill / Receipt</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowReceiptZoom(true)}
+                    style={styles.receiptPreviewBtn}
+                    activeOpacity={0.8}
+                  >
+                    {transaction.receiptImageUrl ? (
+                      <Image
+                        source={{ uri: transaction.receiptImageUrl }}
+                        style={styles.receiptThumb}
+                      />
+                    ) : (
+                      <Ionicons name="document-text-outline" size={24} color="#0284C7" />
+                    )}
+                    <View style={styles.receiptInfo}>
+                      <Text style={styles.receiptTitle}>📎 Attached Receipt</Text>
+                      <Text style={styles.receiptSub}>Tap to view full image</Text>
+                    </View>
+                    <Ionicons name="expand-outline" size={16} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {transaction.description && transaction.description !== transaction.merchantOrPayee ? (
                 <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
@@ -296,6 +332,36 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           )}
         </View>
       </View>
+
+      {/* Full-Screen Zoomable Receipt Modal */}
+      <Modal
+        visible={showReceiptZoom}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowReceiptZoom(false)}
+      >
+        <View style={styles.receiptBackdrop}>
+          <TouchableOpacity
+            style={styles.receiptCloseBtn}
+            onPress={() => setShowReceiptZoom(false)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="close" size={26} color="#FFFFFF" />
+          </TouchableOpacity>
+          {transaction.receiptImageUrl ? (
+            <Image
+              source={{ uri: transaction.receiptImageUrl }}
+              style={styles.receiptFullScreenImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={styles.noReceiptBox}>
+              <Ionicons name="alert-circle-outline" size={48} color="#94A3B8" />
+              <Text style={styles.noReceiptText}>Image preview is unavailable.</Text>
+            </View>
+          )}
+        </View>
+      </Modal>
     </Modal>
   );
 };
@@ -551,6 +617,72 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  receiptRow: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  receiptPreviewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 8,
+    gap: 10,
+  },
+  receiptThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  receiptInfo: {
+    flex: 1,
+  },
+  receiptTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0369A1',
+  },
+  receiptSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  receiptBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptCloseBtn: {
+    position: 'absolute',
+    top: 48,
+    right: 20,
+    zIndex: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptFullScreenImage: {
+    width: '94%',
+    height: '80%',
+  },
+  noReceiptBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noReceiptText: {
+    color: '#94A3B8',
+    marginTop: 10,
+    fontSize: 14,
   },
 });
 

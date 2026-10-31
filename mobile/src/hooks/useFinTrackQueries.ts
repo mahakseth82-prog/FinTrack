@@ -21,6 +21,8 @@ import {
   ReminderTone,
   DueReminderAlertDto,
   ComposedReminderResponse,
+  DocumentVaultDto,
+  DocumentVaultType,
 } from '../types/ledger';
 
 /**
@@ -118,6 +120,8 @@ export function useCreateTransaction(workspaceId: string | null) {
       description: string;
       amountRupees: number | string;
       paymentVia: PaymentChannel;
+      receiptImagePath?: string | null;
+      receiptImageUrl?: string | null;
     }) =>
       apiFetch('/transactions', {
         method: 'POST',
@@ -431,10 +435,17 @@ export function useScanBillOcr(workspaceId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: { imageBase64: string; mimeType?: string }) =>
+    mutationFn: (payload: {
+      imageBase64: string;
+      mimeType?: string;
+      saveToVault?: boolean;
+      vaultTitle?: string;
+      vaultDocType?: string;
+      vaultExpiryDate?: string;
+    }) =>
       apiFetch<{
         autoSaved?: boolean;
-        draft: IngestionDraftDto;
+        draft?: IngestionDraftDto;
         savedSummary?: {
           id: string;
           title: string;
@@ -442,7 +453,11 @@ export function useScanBillOcr(workspaceId: string | null) {
           amountFormatted: string;
           categoryName: string;
           paymentVia: string;
+          receiptImagePath?: string | null;
+          receiptImageUrl?: string | null;
+          vaultDocId?: string | null;
         };
+        ocrSummary?: any;
       }>('/ingestion/bill-ocr', {
         method: 'POST',
         workspaceId,
@@ -453,6 +468,83 @@ export function useScanBillOcr(workspaceId: string | null) {
         queryKey: ['dashboard-summary', workspaceId],
       });
       queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['vault', workspaceId] });
+    },
+  });
+}
+
+/**
+ * Query: Fetches documents stored in the Digital Document Vault for the active workspace.
+ */
+export function useVaultDocuments(
+  workspaceId: string | null,
+  filters?: { docType?: string; search?: string }
+) {
+  const queryParams = new URLSearchParams();
+  if (filters?.docType && filters.docType !== 'ALL') {
+    queryParams.append('docType', filters.docType);
+  }
+  if (filters?.search && filters.search.trim()) {
+    queryParams.append('search', filters.search.trim());
+  }
+  const qs = queryParams.toString();
+  const endpoint = `/vault${qs ? `?${qs}` : ''}`;
+
+  return useQuery({
+    queryKey: ['vault', workspaceId, filters?.docType, filters?.search],
+    queryFn: () =>
+      apiFetch<{ documents: DocumentVaultDto[] }>(endpoint, {
+        workspaceId,
+      }),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/**
+ * Mutation: Uploads a standalone document or links one to a transaction in the Vault.
+ */
+export function useUploadVaultDocument(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      title: string;
+      docType?: DocumentVaultType;
+      fileBase64?: string;
+      mimeType?: string;
+      fileUrl?: string;
+      filePath?: string;
+      expiryDate?: string;
+      linkedTransactionId?: string;
+      metadata?: Record<string, unknown>;
+    }) =>
+      apiFetch<{ success: boolean; document: DocumentVaultDto }>('/vault', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vault', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['transactions', workspaceId] });
+    },
+  });
+}
+
+/**
+ * Mutation: Delete a document from the Vault.
+ */
+export function useDeleteVaultDocument(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (documentId: string) =>
+      apiFetch<{ success: boolean; deletedId: string }>(`/vault/${documentId}`, {
+        method: 'DELETE',
+        workspaceId,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vault', workspaceId] });
     },
   });
 }
