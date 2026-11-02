@@ -20,6 +20,8 @@ export function buildPoliteReminderMessage(params: {
   titleOrNote: string;
   language: ReminderLanguage;
   tone: ReminderTone;
+  upiId?: string;
+  businessName?: string;
 }): string {
   const remainingStr = formatINR(params.remainingPaise);
   const principalStr = formatINR(params.principalPaise);
@@ -27,50 +29,74 @@ export function buildPoliteReminderMessage(params: {
   const hasPartial = params.repaidPaise > 0;
   const notePart = params.titleOrNote ? ` (${params.titleOrNote})` : '';
 
+  let upiSection = '';
+  if (params.upiId && params.upiId.trim()) {
+    const cleanUpi = params.upiId.trim();
+    const amountRupees = (params.remainingPaise / 100).toFixed(2);
+    const payee = params.businessName || 'Merchant';
+    const upiLink = `upi://pay?pa=${cleanUpi}&pn=${encodeURIComponent(
+      payee
+    )}&am=${amountRupees}&cu=INR&tn=${encodeURIComponent(
+      params.titleOrNote || 'Khata Settlement'
+    )}`;
+
+    if (params.language === 'HINDI') {
+      upiSection = `\n\n📲 तुरंत 1-Tap UPI से भुगतान करने के लिए लिंक:\n${upiLink}\n(या सीधे UPI ID पर भेजें: ${cleanUpi})`;
+    } else if (params.language === 'ENGLISH') {
+      upiSection = `\n\n📲 1-Tap Instant UPI Pay Link:\n${upiLink}\n(Or pay directly to UPI ID: ${cleanUpi})`;
+    } else {
+      upiSection = `\n\n📲 1-Tap Instant UPI Pay Link:\n${upiLink}\n(Ya directly is UPI ID par bhejein: ${cleanUpi})`;
+    }
+  }
+
+  let baseMessage = '';
+
   if (params.language === 'HINDI') {
     if (params.tone === 'FRIENDLY') {
-      return `नमस्ते ${params.contactName} जी 🙏,\nFinTrack खाते के अनुसार आपका ${remainingStr} का बैलेंस${notePart} ${params.dueDate} को देय (due) है।${
+      baseMessage = `नमस्ते ${params.contactName} जी 🙏,\nFinTrack खाते के अनुसार आपका ${remainingStr} का बैलेंस${notePart} ${params.dueDate} को देय (due) है।${
         hasPartial
           ? ` (कुल: ${principalStr}, प्राप्त: ${repaidStr}, शेष: ${remainingStr})`
           : ''
       }\nजब भी आपको सुविधा हो, कृपया UPI या नकद द्वारा भुगतान कर दें। धन्यवाद! 🤝`;
+    } else {
+      baseMessage = `आदरणीय ${params.contactName} जी 🙏,\nFinTrack व्यापार खाता अनुस्मारक: आपके खाते में ${remainingStr} की राशि${notePart} दिनांक ${params.dueDate} को देय है।${
+        hasPartial
+          ? ` (मूल राशि: ${principalStr}, जमा: ${repaidStr}, शेष: ${remainingStr})`
+          : ''
+      }\nकृपया समय पर भुगतान कर सहयोग प्रदान करें। सादर धन्यवाद।`;
     }
-    return `आदरणीय ${params.contactName} जी 🙏,\nFinTrack व्यापार खाता अनुस्मारक: आपके खाते में ${remainingStr} की राशि${notePart} दिनांक ${params.dueDate} को देय है।${
-      hasPartial
-        ? ` (मूल राशि: ${principalStr}, जमा: ${repaidStr}, शेष: ${remainingStr})`
-        : ''
-    }\nकृपया समय पर भुगतान कर सहयोग प्रदान करें। सादर धन्यवाद।`;
-  }
-
-  if (params.language === 'ENGLISH') {
+  } else if (params.language === 'ENGLISH') {
     if (params.tone === 'FRIENDLY') {
-      return `Hello ${params.contactName} 🙏,\nJust a friendly reminder from FinTrack that your balance of ${remainingStr}${notePart} is due on ${params.dueDate}.${
+      baseMessage = `Hello ${params.contactName} 🙏,\nJust a friendly reminder from FinTrack that your balance of ${remainingStr}${notePart} is due on ${params.dueDate}.${
         hasPartial
           ? ` (Total: ${principalStr}, Paid: ${repaidStr}, Remaining: ${remainingStr})`
           : ''
       }\nWhenever convenient, please share via UPI. Thank you!`;
+    } else {
+      baseMessage = `Dear ${params.contactName},\nThis is a gentle reminder from FinTrack Ledger regarding your pending balance of ${remainingStr}${notePart}, due on ${params.dueDate}.${
+        hasPartial
+          ? ` (Principal: ${principalStr}, Received: ${repaidStr}, Balance: ${remainingStr})`
+          : ''
+      }\nKindly arrange the settlement at your earliest convenience. Thank you for your business.`;
     }
-    return `Dear ${params.contactName},\nThis is a gentle reminder from FinTrack Ledger regarding your pending balance of ${remainingStr}${notePart}, due on ${params.dueDate}.${
-      hasPartial
-        ? ` (Principal: ${principalStr}, Received: ${repaidStr}, Balance: ${remainingStr})`
-        : ''
-    }\nKindly arrange the settlement at your earliest convenience. Thank you for your business.`;
+  } else {
+    // Default: HINGLISH
+    if (params.tone === 'FRIENDLY') {
+      baseMessage = `Namaste ${params.contactName} bhai 🙏,\nFinTrack khate par aapka ${remainingStr} ka balance${notePart} ${params.dueDate} ko due hai.${
+        hasPartial
+          ? ` (Total: ${principalStr}, Mila: ${repaidStr}, Baaki: ${remainingStr})`
+          : ''
+      }\nJab aapko suvidha ho toh UPI ya cash kar dijiyega. Dhanyawad! 🤝`;
+    } else {
+      baseMessage = `Namaste ${params.contactName} ji 🙏,\nFinTrack Vyapaar Khata reminder: Aapka ${remainingStr} ka hisaab${notePart} ${params.dueDate} ko due hai.${
+        hasPartial
+          ? ` (Original: ${principalStr}, Paid: ${repaidStr}, Remaining: ${remainingStr})`
+          : ''
+      }\nKripya samay par UPI ya bank transfer se payment bhej kar sahyog karein. Dhanyawad!`;
+    }
   }
 
-  // Default: HINGLISH
-  if (params.tone === 'FRIENDLY') {
-    return `Namaste ${params.contactName} bhai 🙏,\nFinTrack khate par aapka ${remainingStr} ka balance${notePart} ${params.dueDate} ko due hai.${
-      hasPartial
-        ? ` (Total: ${principalStr}, Mila: ${repaidStr}, Baaki: ${remainingStr})`
-        : ''
-    }\nJab aapko suvidha ho toh UPI ya cash kar dijiyega. Dhanyawad! 🤝`;
-  }
-
-  return `Namaste ${params.contactName} ji 🙏,\nFinTrack Vyapaar Khata reminder: Aapka ${remainingStr} ka hisaab${notePart} ${params.dueDate} ko due hai.${
-    hasPartial
-      ? ` (Original: ${principalStr}, Paid: ${repaidStr}, Remaining: ${remainingStr})`
-      : ''
-  }\nKripya samay par UPI ya bank transfer se payment bhej kar sahyog karein. Dhanyawad!`;
+  return baseMessage + upiSection;
 }
 
 /**
@@ -173,6 +199,7 @@ router.post(
         obligationId,
         language = 'HINGLISH',
         tone = 'FRIENDLY',
+        upiId,
       } = req.body;
 
       const { data: ob, error } = await req.db!
@@ -181,6 +208,7 @@ router.post(
           `
           id,
           contact_id,
+          workspace_id,
           principal_paise,
           repaid_paise,
           remaining_paise,
@@ -195,6 +223,17 @@ router.post(
       if (error || !ob) {
         res.status(404).json({ error: 'Obligation not found' });
         return;
+      }
+
+      // Lookup business/workspace name for UPI payee name
+      let businessName = 'FinTrack Business';
+      if (ob.workspace_id) {
+        const { data: ws } = await req.db!
+          .from('workspaces')
+          .select('name')
+          .eq('id', ob.workspace_id)
+          .single();
+        if (ws?.name) businessName = ws.name;
       }
 
       const contact = Array.isArray(ob.contacts) ? ob.contacts[0] : ob.contacts;
@@ -212,6 +251,8 @@ router.post(
         titleOrNote: ob.title_or_note || '',
         language,
         tone,
+        upiId: upiId && typeof upiId === 'string' ? upiId.trim() : undefined,
+        businessName,
       });
 
       res.json({

@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Linking,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useComposeReminder,
@@ -43,28 +45,44 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
   const [language, setLanguage] = useState<ReminderLanguage>('HINGLISH');
   const [tone, setTone] = useState<ReminderTone>('FRIENDLY');
   const [composedText, setComposedText] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [includeUpiLink, setIncludeUpiLink] = useState(true);
+
+  // Load saved UPI ID on mount
+  useEffect(() => {
+    AsyncStorage.getItem('@fintrack_business_upi_id').then((saved) => {
+      if (saved) setUpiId(saved);
+    });
+  }, []);
 
   useEffect(() => {
     if (!visible || !target) return;
+
+    const activeUpi = includeUpiLink && upiId.trim() ? upiId.trim() : undefined;
 
     composeMutation
       .mutateAsync({
         obligationId: target.obligationId,
         language,
         tone,
+        upiId: activeUpi,
       })
       .then((res) => {
         setComposedText(res.message);
       })
       .catch(() => {
         // Fallback if offline
+        const amountRupees = (target.remainingPaise / 100).toFixed(2);
+        const upiLinkStr = activeUpi
+          ? `\n\n📲 1-Tap UPI Pay Link:\nupi://pay?pa=${activeUpi}&am=${amountRupees}&cu=INR&tn=Khata%20Settlement`
+          : '';
         setComposedText(
           `Namaste ${target.contactName} ji 🙏, FinTrack par aapka ${formatINR(
             target.remainingPaise
-          )} ka balance (${target.dueDate}) due hai. Jab suvidha ho toh UPI kar dijiyega. Dhanyawad!`
+          )} ka balance (${target.dueDate}) due hai. Jab suvidha ho toh UPI kar dijiyega. Dhanyawad!${upiLinkStr}`
         );
       });
-  }, [visible, target, language, tone]);
+  }, [visible, target, language, tone, upiId, includeUpiLink]);
 
   if (!target) return null;
 
@@ -223,6 +241,67 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
             ))}
           </View>
 
+          {/* 1-Tap UPI Payment Link Section */}
+          <View
+            style={[
+              styles.upiContainer,
+              {
+                backgroundColor: palette.surfaceElevated,
+                borderColor: palette.borderLatte,
+              },
+            ]}
+          >
+            <View style={styles.upiHeaderRow}>
+              <View style={styles.upiLabelRow}>
+                <Ionicons name="flash" size={15} color="#059669" />
+                <Text style={[styles.upiHeaderTitle, { color: palette.textEspresso }]}>
+                  Attach 1-Tap UPI Payment Link
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setIncludeUpiLink((prev) => !prev)}
+                style={[
+                  styles.upiTogglePill,
+                  includeUpiLink ? styles.upiTogglePillActive : styles.upiTogglePillInactive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.upiTogglePillText,
+                    includeUpiLink ? styles.upiToggleTextActive : styles.upiToggleTextInactive,
+                  ]}
+                >
+                  {includeUpiLink ? 'ON' : 'OFF'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {includeUpiLink && (
+              <View style={styles.upiInputWrapper}>
+                <Ionicons
+                  name="card-outline"
+                  size={16}
+                  color={palette.textMocha}
+                  style={{ marginRight: 6 }}
+                />
+                <TextInput
+                  value={upiId}
+                  onChangeText={(val) => {
+                    setUpiId(val);
+                    AsyncStorage.setItem('@fintrack_business_upi_id', val.trim());
+                  }}
+                  placeholder="Your UPI ID (e.g. 9876543210@paytm, name@okhdfcbank)"
+                  placeholderTextColor={palette.textMocha}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={[styles.upiTextInput, { color: palette.textEspresso }]}
+                />
+              </View>
+            )}
+          </View>
+
           {/* Editable Polite Message Preview */}
           <Text style={[styles.sectionLabel, { color: palette.textEspresso }]}>
             Polite Message Preview (Editable):
@@ -362,6 +441,66 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 8,
+  },
+  upiContainer: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 2,
+    gap: 8,
+  },
+  upiHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  upiLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  upiHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  upiTogglePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  upiTogglePillActive: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  upiTogglePillInactive: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1',
+  },
+  upiTogglePillText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  upiToggleTextActive: {
+    color: '#059669',
+  },
+  upiToggleTextInactive: {
+    color: '#64748B',
+  },
+  upiInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  upiTextInput: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
   },
   smsBtn: {
     flex: 1,

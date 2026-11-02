@@ -425,6 +425,7 @@ export function useComposeReminder(workspaceId: string | null) {
       obligationId: string;
       language: ReminderLanguage;
       tone: ReminderTone;
+      upiId?: string;
     }) =>
       apiFetch<ComposedReminderResponse>('/reminders/compose', {
         method: 'POST',
