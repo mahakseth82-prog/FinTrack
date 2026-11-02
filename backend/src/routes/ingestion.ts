@@ -147,12 +147,13 @@ async function resolveOrCreateCategory(params: {
 }
 
 /**
- * POST /api/v1/ingestion/bill-ocr
+ * POST /api/v1/ingestion/bill-ocr and /api/v1/ai/parse-receipt
  * Scans a paper bill / parchi image with Gemini Vision, converts total to integer paise,
- * and AUTOMATICALLY saves the transaction directly to `public.transactions` (`Recent Spends`).
+ * uploads receipt image to Supabase Storage (documents-vault), and saves to `public.transactions`.
+ * Gracefully returns an editable draft if OCR cannot extract a definitive total.
  */
 router.post(
-  '/ingestion/bill-ocr',
+  ['/ingestion/bill-ocr', '/ai/parse-receipt'],
   requireAuth,
   async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -162,56 +163,29 @@ router.post(
         return;
       }
 
-      const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+      const {
+        imageBase64,
+        mimeType = 'image/jpeg',
+        saveToVault,
+        vaultTitle,
+        vaultDocType = 'BILL',
+        vaultExpiryDate,
+      } = req.body;
+
       if (!imageBase64) {
         res.status(400).json({ error: 'imageBase64 is required for Bill OCR' });
         return;
       }
 
-      const { data: ws } = await req.db!
-        .from('workspaces')
-        .select('mode')
-        .eq('id', workspaceId)
-        .single();
-
-      const ocrResult = await extractBillWithGeminiVision({
-        imageBase64,
-        mimeType,
-        workspaceMode: ws?.mode || 'PERSONAL',
-      });
-
-      const amountPaise =
-        ocrResult.totalRupees && ocrResult.totalRupees > 0
-          ? rupeesToPaise(ocrResult.totalRupees)
-          : null;
-
-      if (!amountPaise || amountPaise <= 0) {
-        res.status(400).json({
-          error:
-            'Could not detect a clear bill total on this image. Please try a clearer photo or type the spend directly.',
-        });
-        return;
-      }
-
-      const detectedPayment = ocrResult.paymentVia;
-      const validPayments = ['UPI', 'CARD', 'BANK_TRANSFER', 'CASH'];
-      const paymentVia =
-        detectedPayment && validPayments.includes(detectedPayment) && detectedPayment !== 'UNSPECIFIED'
-          ? detectedPayment
-          : 'UNSPECIFIED';
-
-      const merchantName = ocrResult.merchantName || 'Scanned Bill';
-      const categoryName = ocrResult.suggestedCategory || 'Grocery & Rashan';
-
-      // 1. Upload receipt image to Supabase Storage if imageBase64 is present
+      // 1. Upload receipt image to Supabase Storage immediately
       let receiptImagePath: string | null = null;
       let receiptImageUrl: string | null = null;
 
-      if (imageBase64) {
-        try {
-          const ext = mimeType && mimeType.includes('pdf') ? 'pdf' : 'jpg';
-          const fileName = `${req.userId}/receipt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
-          const buffer = Buffer.from(imageBase64, 'base64');
+      try {
+        const ext = mimeType && mimeType.includes('pdf') ? 'pdf' : 'jpg';
+        const fileName = `${req.userId}/receipt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+        const buffer = Buffer.from(imageBase64, 'base64');
+        if (supabaseAdmin) {
           const { error: uploadErr } = await supabaseAdmin.storage
             .from('documents-vault')
             .upload(fileName, buffer, {
@@ -227,12 +201,86 @@ router.post(
             if (signed?.signedUrl) {
               receiptImageUrl = signed.signedUrl;
             }
+          } else {
+            console.warn('Storage upload error:', uploadErr.message);
           }
-        } catch (storageErr) {
-          console.warn('Receipt storage upload error:', storageErr);
         }
+      } catch (storageErr) {
+        console.warn('Receipt storage upload exception:', storageErr);
       }
 
+      // 2. Perform OCR with Gemini Vision
+      const { data: ws } = await req.db!
+        .from('workspaces')
+        .select('mode')
+        .eq('id', workspaceId)
+        .single();
+
+      let ocrResult;
+      try {
+        ocrResult = await extractBillWithGeminiVision({
+          imageBase64,
+          mimeType,
+          workspaceMode: ws?.mode || 'PERSONAL',
+        });
+      } catch (ocrErr) {
+        console.warn('OCR error, using default fallback:', ocrErr);
+        ocrResult = {
+          merchantName: 'Scanned Bill',
+          billDate: new Date().toISOString().slice(0, 10),
+          totalRupees: null,
+          suggestedCategory: 'Bills & Utilities',
+          paymentVia: 'UNSPECIFIED' as const,
+          lineItems: [],
+          summaryNote: 'Scanned receipt',
+          confidence: 0,
+        };
+      }
+
+      const merchantName = ocrResult.merchantName || 'Scanned Bill';
+      const categoryName = ocrResult.suggestedCategory || 'Grocery & Rashan';
+      const detectedPayment = ocrResult.paymentVia;
+      const validPayments = ['UPI', 'CARD', 'BANK_TRANSFER', 'CASH'];
+      const paymentVia =
+        detectedPayment && validPayments.includes(detectedPayment) && detectedPayment !== 'UNSPECIFIED'
+          ? detectedPayment
+          : 'UNSPECIFIED';
+
+      const amountPaise =
+        ocrResult.totalRupees && ocrResult.totalRupees > 0
+          ? rupeesToPaise(ocrResult.totalRupees)
+          : null;
+
+      // If no clear amount detected, gracefully return editable draft with image attached!
+      if (!amountPaise || amountPaise <= 0) {
+        res.status(200).json({
+          autoSaved: false,
+          needsReview: true,
+          draft: {
+            merchantOrPayee: merchantName,
+            amountRupees: ocrResult.totalRupees || null,
+            categoryName,
+            paymentVia,
+            receiptImagePath,
+            receiptImageUrl,
+            summaryNote: ocrResult.summaryNote || 'Please enter receipt amount',
+          },
+          savedSummary: {
+            id: '',
+            title: merchantName,
+            amountPaise: 0,
+            amountFormatted: '₹0',
+            categoryName,
+            paymentVia,
+            receiptImagePath,
+            receiptImageUrl,
+          },
+          ocrSummary: ocrResult,
+        });
+        return;
+      }
+
+      // If valid amount, auto-save transaction
       const categoryId = await resolveOrCreateCategory({
         db: req.db!,
         workspaceId,
@@ -259,16 +307,26 @@ router.post(
         .single();
 
       if (txErr || !tx) {
-        res.status(500).json({
-          error: txErr?.message || 'Failed to save scanned bill transaction',
+        // Fallback: still return draft with image so user doesn't lose anything
+        res.status(200).json({
+          autoSaved: false,
+          needsReview: true,
+          draft: {
+            merchantOrPayee: merchantName,
+            amountRupees: ocrResult.totalRupees || null,
+            categoryName,
+            paymentVia,
+            receiptImagePath,
+            receiptImageUrl,
+            summaryNote: ocrResult.summaryNote,
+          },
+          ocrSummary: ocrResult,
         });
         return;
       }
 
       // If requested, also store as a document in documents_vault
-      const { saveToVault, vaultTitle, vaultDocType = 'BILL', vaultExpiryDate } = req.body;
       let vaultDocId: string | null = null;
-
       if (saveToVault && receiptImagePath) {
         try {
           const { data: vaultDoc } = await req.db!
@@ -313,6 +371,7 @@ router.post(
         ocrSummary: ocrResult,
       });
     } catch (err: unknown) {
+      console.error('Fatal bill OCR error:', err);
       const message =
         err instanceof Error ? err.message : 'Bill OCR extraction failed';
       res.status(500).json({ error: message });

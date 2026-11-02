@@ -79,3 +79,4 @@ BEGIN
             USING (bucket_id = 'documents-vault' AND auth.uid()::text = (storage.foldername(name))[1]);
     END IF;
 END $$;
+

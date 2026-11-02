@@ -96,26 +96,40 @@ Never invent totals if unreadable; set totalRupees to null if completely missing
 STRICT PAYMENT METHOD RULE:
 Only set paymentVia if the payment mode (UPI, CASH, CARD, BANK_TRANSFER) is explicitly and visibly printed on the bill/receipt. If it is NOT explicitly printed, you MUST return "UNSPECIFIED". Under NO circumstances should you default or assume "CASH".`;
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: [
-      {
-        inlineData: {
-          data: params.imageBase64,
-          mimeType: params.mimeType,
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          inlineData: {
+            data: params.imageBase64,
+            mimeType: params.mimeType,
+          },
         },
+        'Read this Indian bill/receipt image and extract the structured JSON draft.',
+      ],
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: 'application/json',
+        responseSchema: BILL_OCR_SCHEMA,
+        temperature: 0.1,
       },
-      'Read this Indian bill/receipt image and extract the structured JSON draft.',
-    ],
-    config: {
-      systemInstruction: systemPrompt,
-      responseMimeType: 'application/json',
-      responseSchema: BILL_OCR_SCHEMA,
-      temperature: 0.1,
-    },
-  });
+    });
 
-  const rawText = response.text || '{}';
-  return JSON.parse(rawText) as GeminiBillOcrResult;
+    const rawText = response.text || '{}';
+    return JSON.parse(rawText) as GeminiBillOcrResult;
+  } catch (err: unknown) {
+    console.warn('⚠️ Gemini OCR extraction error, providing graceful fallback:', err);
+    return {
+      merchantName: 'Scanned Bill',
+      billDate: new Date().toISOString().slice(0, 10),
+      totalRupees: null,
+      suggestedCategory: 'Bills & Utilities',
+      paymentVia: 'UNSPECIFIED',
+      lineItems: [],
+      summaryNote: 'Scanned receipt (please confirm amount and details)',
+      confidence: 0.0,
+    };
+  }
 }
 

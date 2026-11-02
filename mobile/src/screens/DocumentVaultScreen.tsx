@@ -6,3 +6,4 @@ export const DocumentVaultScreen: React.FC<{
 }> = ({ onClose }) => {
   return <DocumentVaultModal visible={true} onClose={onClose || (() => {})} />;
 };
+

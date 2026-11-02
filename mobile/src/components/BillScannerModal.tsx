@@ -7,13 +7,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   TextInput,
-  ScrollView,
   Platform,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useScanBillOcr,
@@ -40,17 +40,9 @@ interface BillScannerModalProps {
   onBillScanned?: (result: ScannedBillResult) => void;
 }
 
-const VAULT_CATEGORIES: { label: string; value: DocumentVaultType }[] = [
-  { label: 'Bills & Receipts', value: 'BILL' },
-  { label: 'Invoices', value: 'INVOICE' },
-  { label: 'Insurance Policy', value: 'INSURANCE' },
-  { label: 'Warranty Cards', value: 'WARRANTY' },
-  { label: 'Vehicle RC / PUC', value: 'RC_BOOK' },
-  { label: 'Other Document', value: 'OTHER' },
-];
-
 /**
- * Parses UPI QR URI (e.g. upi://pay?pa=shop@upi&pn=Kirana%20Store&am=250.00&cu=INR&tn=Rashan)
+ * Robust UPI QR URI parser (BharatQR / UPI standard format)
+ * Handles upi://pay?pa=merchant@upi&pn=Merchant%20Name&am=250.00&cu=INR&tn=Rashan
  */
 export function parseUpiQrUrl(raw: string): {
   isUpi: boolean;
@@ -59,22 +51,30 @@ export function parseUpiQrUrl(raw: string): {
   amountRupees?: number;
   note?: string;
 } {
-  if (!raw || !raw.toLowerCase().startsWith('upi://pay')) {
+  if (!raw) return { isUpi: false };
+
+  const cleaned = raw.trim();
+  if (!cleaned.toLowerCase().startsWith('upi://pay')) {
     return { isUpi: false };
   }
 
   try {
-    const pa = raw.match(/[?&]pa=([^&]+)/i)?.[1];
-    const pn = raw.match(/[?&]pn=([^&]+)/i)?.[1];
-    const am = raw.match(/[?&]am=([^&]+)/i)?.[1];
-    const tn = raw.match(/[?&]tn=([^&]+)/i)?.[1];
+    const paMatch = cleaned.match(/[?&]pa=([^&]+)/i);
+    const pnMatch = cleaned.match(/[?&]pn=([^&]+)/i);
+    const amMatch = cleaned.match(/[?&]am=([^&]+)/i);
+    const tnMatch = cleaned.match(/[?&]tn=([^&]+)/i);
+
+    const payeeVpa = paMatch ? decodeURIComponent(paMatch[1]) : undefined;
+    const payeeName = pnMatch ? decodeURIComponent(pnMatch[1].replace(/\+/g, ' ')) : undefined;
+    const amountRupees = amMatch && !isNaN(parseFloat(amMatch[1])) ? parseFloat(amMatch[1]) : undefined;
+    const note = tnMatch ? decodeURIComponent(tnMatch[1].replace(/\+/g, ' ')) : undefined;
 
     return {
       isUpi: true,
-      payeeVpa: pa ? decodeURIComponent(pa) : undefined,
-      payeeName: pn ? decodeURIComponent(pn.replace(/\+/g, ' ')) : undefined,
-      amountRupees: am && !isNaN(parseFloat(am)) ? parseFloat(am) : undefined,
-      note: tn ? decodeURIComponent(tn.replace(/\+/g, ' ')) : undefined,
+      payeeVpa,
+      payeeName,
+      amountRupees,
+      note,
     };
   } catch {
     return { isUpi: false };
@@ -101,10 +101,9 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
   // Vault saving toggle
   const [saveToVault, setSaveToVault] = useState(mode === 'VAULT');
+  const [showVaultSettings, setShowVaultSettings] = useState(false);
   const [vaultTitle, setVaultTitle] = useState('');
-  const [vaultDocType, setVaultDocType] = useState<DocumentVaultType>(
-    mode === 'VAULT' ? 'BILL' : 'BILL'
-  );
+  const [vaultDocType, setVaultDocType] = useState<DocumentVaultType>('BILL');
 
   useEffect(() => {
     if (visible) {
@@ -113,6 +112,7 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
       setStatusMessage(null);
       setIsTorchOn(false);
       setSaveToVault(mode === 'VAULT');
+      setShowVaultSettings(false);
       setVaultTitle('');
     }
   }, [visible, mode]);
@@ -127,7 +127,7 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
     const upiData = parseUpiQrUrl(data);
     if (upiData.isUpi) {
       setHasScannedQr(true);
-      const name = upiData.payeeName || upiData.payeeVpa || 'UPI Payee';
+      const name = upiData.payeeName || upiData.payeeVpa || 'UPI Merchant';
       const amount = upiData.amountRupees;
 
       Alert.alert(
@@ -149,7 +149,7 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
                   amountRupees: amount,
                   categoryName: 'Chai & Dining',
                   paymentVia: 'UPI',
-                  summaryNote: upiData.note || `Paid to ${name} via QR`,
+                  summaryNote: upiData.note || `Paid to ${name} via UPI QR`,
                 });
               }
             },
@@ -159,23 +159,42 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
     }
   };
 
-  // Process image (either snapped or picked from gallery)
-  const processImageBase64 = async (
-    imageBase64: string,
-    mimeType = 'image/jpeg'
-  ) => {
+  /**
+   * Compresses image using expo-image-manipulator (max width 1024px, JPEG 0.7)
+   * to guarantee fast uploads without timeouts.
+   */
+  const compressImage = async (uri: string): Promise<string> => {
+    const manipResult = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1024 } }],
+      {
+        compress: 0.7,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+
+    if (!manipResult.base64) {
+      throw new Error('Image compression did not return base64 payload.');
+    }
+    return manipResult.base64;
+  };
+
+  // Process compressed image payload through OCR or Vault
+  const processCompressedImage = async (base64Payload: string) => {
     setIsProcessing(true);
-    setStatusMessage('Analyzing with Gemini AI OCR...');
+    setStatusMessage('Reading receipt with AI...');
 
     try {
       if (mode === 'VAULT' || (!onBillScanned && saveToVault)) {
         // Direct Standalone Vault Upload
-        const docTitle = vaultTitle.trim() || `Document ${new Date().toLocaleDateString('en-IN')}`;
+        const docTitle =
+          vaultTitle.trim() || `Document ${new Date().toLocaleDateString('en-IN')}`;
         await uploadVaultMutation.mutateAsync({
           title: docTitle,
           docType: vaultDocType,
-          fileBase64: imageBase64,
-          mimeType,
+          fileBase64: base64Payload,
+          mimeType: 'image/jpeg',
         });
 
         setIsProcessing(false);
@@ -186,8 +205,8 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
       // Expense Receipt Scanning
       const response = await scanBillMutation.mutateAsync({
-        imageBase64,
-        mimeType,
+        imageBase64: base64Payload,
+        mimeType: 'image/jpeg',
         saveToVault,
         vaultTitle: vaultTitle.trim() || undefined,
         vaultDocType,
@@ -198,45 +217,78 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
       const saved = response.savedSummary;
       const ocr = response.ocrSummary;
+      const draft = response.draft;
 
-      const detectedPayment = (saved?.paymentVia || ocr?.paymentVia || 'UNSPECIFIED') as PaymentChannel;
-      const payee = saved?.title || ocr?.merchantName || 'Scanned Bill';
-      const amt = ocr?.totalRupees || (saved?.amountPaise ? saved.amountPaise / 100 : undefined);
+      // Extract detected values with fallback resilience
+      const payee =
+        saved?.title ||
+        draft?.extractedContactName ||
+        ocr?.merchantName ||
+        'Scanned Receipt';
+      const amt =
+        ocr?.totalRupees ||
+        (draft?.extractedAmountRupees ?? undefined) ||
+        (saved?.amountPaise && saved.amountPaise > 0
+          ? saved.amountPaise / 100
+          : undefined);
+      const cat =
+        saved?.categoryName ||
+        draft?.extractedCategoryName ||
+        ocr?.suggestedCategory ||
+        'Grocery & Rashan';
+      const detectedPayment = (saved?.paymentVia ||
+        draft?.paymentVia ||
+        ocr?.paymentVia ||
+        'UNSPECIFIED') as PaymentChannel;
+      const imgPath = saved?.receiptImagePath || draft?.receiptImagePath || null;
+      const imgUrl = saved?.receiptImageUrl || draft?.receiptImageUrl || null;
 
       if (onBillScanned) {
         onBillScanned({
           merchantOrPayee: payee,
           amountRupees: amt,
-          categoryName: saved?.categoryName || ocr?.suggestedCategory || 'Grocery & Rashan',
+          categoryName: cat,
           paymentVia: detectedPayment,
-          receiptImagePath: saved?.receiptImagePath || null,
-          receiptImageUrl: saved?.receiptImageUrl || null,
+          receiptImagePath: imgPath,
+          receiptImageUrl: imgUrl,
           vaultDocId: saved?.vaultDocId || null,
-          summaryNote: ocr?.summaryNote,
+          summaryNote: ocr?.summaryNote || 'Scanned bill',
         });
       }
     } catch (err: unknown) {
       setIsProcessing(false);
-      const msg = err instanceof Error ? err.message : 'OCR scan failed';
-      Alert.alert('Scan Failed', msg);
+      console.warn('OCR processing error fallback:', err);
+      // Resilient fallback: open manual entry with generic details instead of crashing!
+      onClose();
+      if (onBillScanned) {
+        onBillScanned({
+          merchantOrPayee: 'Scanned Bill',
+          amountRupees: undefined,
+          categoryName: 'Bills & Utilities',
+          paymentVia: 'UNSPECIFIED',
+          summaryNote: 'Scanned bill (manual review)',
+        });
+      }
     }
   };
 
-  // Snap photo from CameraView
+  // Capture photo from CameraView
   const handleCapturePhoto = async () => {
     if (!cameraRef.current || isProcessing) return;
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.85,
+        quality: 0.8,
         skipProcessing: true,
       });
 
-      if (photo?.base64) {
-        await processImageBase64(photo.base64, 'image/jpeg');
+      if (photo?.uri) {
+        setStatusMessage('Optimizing image size...');
+        const compressedBase64 = await compressImage(photo.uri);
+        await processCompressedImage(compressedBase64);
       }
     } catch (err: unknown) {
+      setIsProcessing(false);
       const msg = err instanceof Error ? err.message : 'Failed to capture photo';
       Alert.alert('Camera Error', msg);
     }
@@ -255,16 +307,17 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        base64: true,
         quality: 0.85,
         allowsEditing: true,
       });
 
-      if (!result.canceled && result.assets?.[0]?.base64) {
-        const asset = result.assets[0];
-        await processImageBase64(asset.base64!, asset.mimeType || 'image/jpeg');
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setStatusMessage('Compressing image...');
+        const compressedBase64 = await compressImage(result.assets[0].uri);
+        await processCompressedImage(compressedBase64);
       }
     } catch (err: unknown) {
+      setIsProcessing(false);
       const msg = err instanceof Error ? err.message : 'Failed to select image from gallery';
       Alert.alert('Gallery Error', msg);
     }
@@ -285,17 +338,12 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
             style={styles.circleBtn}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Ionicons name="close" size={24} color="#FFFFFF" />
+            <Ionicons name="close" size={22} color="#FFFFFF" />
           </TouchableOpacity>
 
-          <View style={styles.topTitleBox}>
-            <Text style={styles.topTitle}>
-              {mode === 'VAULT' ? 'Upload Document to Vault' : 'Scan Bill or BharatQR'}
-            </Text>
-            <Text style={styles.topSubtitle}>
-              {mode === 'VAULT' ? 'Invoices, Policies & Warranties' : 'AI extracts total, merchant & items'}
-            </Text>
-          </View>
+          <Text style={styles.topTitle}>
+            {mode === 'VAULT' ? 'Upload Document' : 'Scan Bill or UPI QR'}
+          </Text>
 
           <TouchableOpacity
             onPress={() => setIsTorchOn((prev) => !prev)}
@@ -304,7 +352,7 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
           >
             <Ionicons
               name={isTorchOn ? 'flash' : 'flash-outline'}
-              size={20}
+              size={18}
               color={isTorchOn ? '#F59E0B' : '#FFFFFF'}
             />
           </TouchableOpacity>
@@ -313,10 +361,10 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
         {/* Camera View or Permission Prompt */}
         {!permission?.granted ? (
           <View style={styles.permissionBox}>
-            <Ionicons name="camera-outline" size={56} color="#94A3B8" />
+            <Ionicons name="camera-outline" size={50} color="#94A3B8" />
             <Text style={styles.permissionTitle}>Camera Permission Required</Text>
             <Text style={styles.permissionSubtitle}>
-              FinTrack needs access to your camera to scan paper bills, parchi receipts, and UPI QR codes.
+              FinTrack needs camera access to scan paper bills and UPI QR codes.
             </Text>
 
             <TouchableOpacity
@@ -324,7 +372,6 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
               style={styles.permissionBtn}
               activeOpacity={0.8}
             >
-              <Ionicons name="shield-checkmark-outline" size={18} color="#FFFFFF" />
               <Text style={styles.permissionBtnText}>Enable Camera</Text>
             </TouchableOpacity>
 
@@ -333,8 +380,7 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
               style={styles.permissionGalleryBtn}
               activeOpacity={0.8}
             >
-              <Ionicons name="images-outline" size={18} color="#0F172A" />
-              <Text style={styles.permissionGalleryBtnText}>Or Pick from Gallery</Text>
+              <Text style={styles.permissionGalleryBtnText}>Choose from Gallery</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -345,136 +391,91 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
               facing="back"
               enableTorch={isTorchOn}
               barcodeScannerSettings={{
-                barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'upc_a'],
+                barcodeTypes: ['qr', 'code128', 'ean13', 'ean8', 'upc_a'],
               }}
-              onBarcodeScanned={handleBarcodeScanned}
+              onBarcodeScanned={hasScannedQr || isProcessing ? undefined : handleBarcodeScanned}
             />
 
-            {/* Viewfinder Target Frame */}
-            <View style={styles.viewfinderOverlay}>
+            {/* Clean Viewfinder Target Frame */}
+            <View style={styles.viewfinderOverlay} pointerEvents="none">
               <View style={styles.targetFrame}>
                 <View style={[styles.corner, styles.cornerTL]} />
                 <View style={[styles.corner, styles.cornerTR]} />
                 <View style={[styles.corner, styles.cornerBL]} />
                 <View style={[styles.corner, styles.cornerBR]} />
-                <Text style={styles.guideText}>Align bill or QR code inside frame</Text>
               </View>
+              <Text style={styles.guideText}>Align receipt or QR inside frame</Text>
             </View>
           </View>
         )}
 
-        {/* Vault Save Options Drawer */}
-        <View style={styles.bottomSheet}>
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Vault Checkbox */}
-            {mode === 'EXPENSE' && (
-              <TouchableOpacity
-                onPress={() => setSaveToVault((prev) => !prev)}
-                style={styles.vaultToggleRow}
-                activeOpacity={0.7}
+        {/* Minimal Bottom Bar */}
+        <View style={styles.bottomControlBar}>
+          {/* Subtle Vault Option Toggle */}
+          {mode === 'EXPENSE' && (
+            <TouchableOpacity
+              onPress={() => setShowVaultSettings((prev) => !prev)}
+              style={styles.vaultPillToggle}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={saveToVault ? 'folder' : 'folder-outline'}
+                size={14}
+                color={saveToVault ? '#0284C7' : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.vaultPillText,
+                  saveToVault && styles.vaultPillTextActive,
+                ]}
               >
-                <View
-                  style={[
-                    styles.checkboxBox,
-                    saveToVault && styles.checkboxBoxChecked,
-                  ]}
-                >
-                  {saveToVault && (
-                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                  )}
-                </View>
-                <View style={styles.vaultToggleTextBox}>
-                  <Text style={styles.vaultToggleTitle}>
-                    Save copy to Documents & Insurance Vault
-                  </Text>
-                  <Text style={styles.vaultToggleSubtitle}>
-                    Keep private signed digital backup for claims or warranty
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
+                {saveToVault ? 'Vault Copy: ON' : 'Save Copy to Vault'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
-            {/* Vault Type & Title if active */}
-            {(saveToVault || mode === 'VAULT') && (
-              <View style={styles.vaultOptionsBox}>
-                <Text style={styles.vaultInputLabel}>Document Title</Text>
-                <TextInput
-                  value={vaultTitle}
-                  onChangeText={setVaultTitle}
-                  placeholder={mode === 'VAULT' ? 'e.g. Car Insurance 2026, Laptop Bill' : 'Optional document title...'}
-                  placeholderTextColor="#94A3B8"
-                  style={styles.vaultInput}
-                />
-
-                <Text style={[styles.vaultInputLabel, { marginTop: 10 }]}>Document Type</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.vaultTypeChipsRow}
-                >
-                  {VAULT_CATEGORIES.map((cat) => {
-                    const isSelected = vaultDocType === cat.value;
-                    return (
-                      <TouchableOpacity
-                        key={cat.value}
-                        onPress={() => setVaultDocType(cat.value)}
-                        style={[
-                          styles.vaultTypeChip,
-                          isSelected && styles.vaultTypeChipActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.vaultTypeChipText,
-                            isSelected && styles.vaultTypeChipTextActive,
-                          ]}
-                        >
-                          {cat.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            )}
-
-            {/* Controls: Gallery Button + Shutter Capture */}
-            <View style={styles.controlsRow}>
-              {/* Gallery Button */}
-              <TouchableOpacity
-                onPress={handlePickFromGallery}
-                style={styles.galleryBtn}
-                activeOpacity={0.8}
-                disabled={isProcessing}
-              >
-                <Ionicons name="images-outline" size={20} color="#0F172A" />
-                <Text style={styles.galleryBtnText}>Gallery</Text>
-              </TouchableOpacity>
-
-              {/* Shutter Capture Button */}
-              <TouchableOpacity
-                onPress={handleCapturePhoto}
-                style={styles.shutterBtn}
-                activeOpacity={0.8}
-                disabled={isProcessing}
-              >
-                <View style={styles.shutterInner} />
-              </TouchableOpacity>
-
-              {/* Spacer / Right Balance */}
-              <View style={styles.controlSpacer}>
-                <Text style={styles.scannerHint}>
-                  {mode === 'VAULT' ? 'Capture' : 'Snap Bill'}
-                </Text>
-              </View>
+          {/* Optional Title field when Vault is active */}
+          {(showVaultSettings || mode === 'VAULT') && (
+            <View style={styles.vaultInputMiniBox}>
+              <TextInput
+                value={vaultTitle}
+                onChangeText={setVaultTitle}
+                placeholder="Document title (optional)..."
+                placeholderTextColor="#94A3B8"
+                style={styles.vaultInputMini}
+              />
             </View>
-          </ScrollView>
+          )}
+
+          {/* Shutter and Gallery Row */}
+          <View style={styles.actionsRow}>
+            {/* Gallery Upload Button */}
+            <TouchableOpacity
+              onPress={handlePickFromGallery}
+              style={styles.galleryButton}
+              activeOpacity={0.8}
+              disabled={isProcessing}
+            >
+              <Ionicons name="images-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.galleryButtonText}>Gallery</Text>
+            </TouchableOpacity>
+
+            {/* Elevated Shutter Button */}
+            <TouchableOpacity
+              onPress={handleCapturePhoto}
+              style={styles.shutterButton}
+              activeOpacity={0.85}
+              disabled={isProcessing}
+            >
+              <View style={styles.shutterInnerRing} />
+            </TouchableOpacity>
+
+            {/* Symmetrical Spacer */}
+            <View style={styles.actionSpacer} />
+          </View>
         </View>
 
-        {/* Loading / OCR Processing Overlay */}
+        {/* Loading Overlay */}
         {isProcessing && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#FFFFFF" />
@@ -492,9 +493,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   topBar: {
-    paddingTop: Platform.OS === 'ios' ? 54 : 24,
-    paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingTop: Platform.OS === 'ios' ? 52 : 24,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -502,34 +503,23 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   circleBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   circleBtnActive: {
-    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    backgroundColor: 'rgba(245, 158, 11, 0.3)',
     borderWidth: 1,
     borderColor: '#F59E0B',
   },
-  topTitleBox: {
-    flex: 1,
-    alignItems: 'center',
-    marginHorizontal: 12,
-  },
   topTitle: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     fontFamily: SYSTEM_FONT_STACK,
-  },
-  topSubtitle: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontFamily: SYSTEM_FONT_STACK,
-    marginTop: 2,
   },
   cameraContainer: {
     flex: 1,
@@ -546,55 +536,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   targetFrame: {
-    width: 270,
-    height: 330,
+    width: 260,
+    height: 320,
     position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 16,
   },
   corner: {
     position: 'absolute',
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderColor: '#38BDF8',
   },
   cornerTL: {
     top: 0,
     left: 0,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderTopLeftRadius: 10,
+    borderTopWidth: 3.5,
+    borderLeftWidth: 3.5,
+    borderTopLeftRadius: 8,
   },
   cornerTR: {
     top: 0,
     right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderTopRightRadius: 10,
+    borderTopWidth: 3.5,
+    borderRightWidth: 3.5,
+    borderTopRightRadius: 8,
   },
   cornerBL: {
     bottom: 0,
     left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderBottomLeftRadius: 10,
+    borderBottomWidth: 3.5,
+    borderLeftWidth: 3.5,
+    borderBottomLeftRadius: 8,
   },
   cornerBR: {
     bottom: 0,
     right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderBottomRightRadius: 10,
+    borderBottomWidth: 3.5,
+    borderRightWidth: 3.5,
+    borderBottomRightRadius: 8,
   },
   guideText: {
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 12,
     fontWeight: '600',
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    paddingHorizontal: 12,
+    marginTop: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 14,
     paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: 20,
     overflow: 'hidden',
   },
   permissionBox: {
@@ -606,26 +594,22 @@ const styles = StyleSheet.create({
   },
   permissionTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    marginTop: 16,
-    textAlign: 'center',
+    marginTop: 14,
   },
   permissionSubtitle: {
     color: '#94A3B8',
     fontSize: 13,
     textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 19,
-    marginBottom: 24,
+    marginTop: 6,
+    lineHeight: 18,
+    marginBottom: 20,
   },
   permissionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     backgroundColor: '#0284C7',
     paddingHorizontal: 22,
-    paddingVertical: 13,
+    paddingVertical: 12,
     borderRadius: 12,
   },
   permissionBtnText: {
@@ -634,159 +618,95 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   permissionGalleryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#1E293B',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 12,
-    marginTop: 12,
+    marginTop: 10,
   },
   permissionGalleryBtnText: {
-    color: '#0F172A',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  bottomSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
-    maxHeight: 280,
-  },
-  vaultToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  checkboxBox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#94A3B8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  checkboxBoxChecked: {
-    backgroundColor: '#0284C7',
-    borderColor: '#0284C7',
-  },
-  vaultToggleTextBox: {
-    flex: 1,
-  },
-  vaultToggleTitle: {
+    color: '#94A3B8',
     fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  vaultToggleSubtitle: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  vaultOptionsBox: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  vaultInputLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#475569',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  vaultInput: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: '#0F172A',
-  },
-  vaultTypeChipsRow: {
-    gap: 8,
-    paddingVertical: 4,
-  },
-  vaultTypeChip: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  vaultTypeChipActive: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
-  },
-  vaultTypeChipText: {
-    fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
   },
-  vaultTypeChipTextActive: {
-    color: '#FFFFFF',
-  },
-  controlsRow: {
-    flexDirection: 'row',
+  bottomControlBar: {
+    backgroundColor: '#0A0F1D',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 38 : 22,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 8,
   },
-  galleryBtn: {
+  vaultPillToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  vaultPillText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  vaultPillTextActive: {
+    color: '#38BDF8',
+    fontWeight: '700',
+  },
+  vaultInputMiniBox: {
+    width: '100%',
+    marginBottom: 10,
+  },
+  vaultInputMini: {
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    fontSize: 12,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  actionsRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  galleryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 14,
   },
-  galleryBtnText: {
+  galleryButtonText: {
+    color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '600',
   },
-  shutterBtn: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    borderWidth: 4,
-    borderColor: '#0284C7',
+  shutterButton: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: 'rgba(255,255,255,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  shutterInner: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#0284C7',
+  shutterInnerRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#FFFFFF',
   },
-  controlSpacer: {
-    minWidth: 70,
-    alignItems: 'flex-end',
-  },
-  scannerHint: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
+  actionSpacer: {
+    width: 70,
   },
   loadingOverlay: {
     position: 'absolute',
