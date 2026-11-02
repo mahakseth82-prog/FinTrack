@@ -35,12 +35,14 @@ export async function setupVaultNotificationChannels(): Promise<void> {
         name: 'Vault Document Renewals',
         description: 'Alerts for upcoming insurance, warranty, and document renewals',
         importance: AndroidImportance.HIGH,
+        enableVibrate: true,
         vibrationPattern: [0, 250, 250, 250],
+        enableLights: true,
         lightColor: '#0284C7',
-        sound: 'default',
       });
-    } catch (err) {
-      console.warn('Failed to set notification channel:', err);
+    } catch (_err) {
+      // Graceful fallback: If custom channel setup is not supported (e.g. Expo Go sandbox),
+      // Android falls back to the default notification channel automatically.
     }
   }
 }
@@ -99,7 +101,6 @@ export async function scheduleDocumentRenewalReminder(params: {
           documentId: params.documentId,
           type: 'VAULT_RENEWAL',
         },
-        sound: 'default',
       },
       trigger: {
         type: SchedulableTriggerInputTypes.DATE,
