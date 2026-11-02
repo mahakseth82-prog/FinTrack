@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
+import { analyzeVaultDocumentWithGemini } from '../services/geminiVaultService';
 
 const router = Router();
 
@@ -105,6 +106,51 @@ router.get(
       const message =
         err instanceof Error ? err.message : 'Failed to fetch vault documents';
       res.status(500).json({ error: message });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/vault/analyze-document
+ * Runs Gemini 2.5 Flash OCR over an uploaded document or physical record,
+ * auto-classifying doc_type, extracting expiry/renewal date, and detecting policy identifiers.
+ */
+router.post(
+  '/vault/analyze-document',
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { fileBase64, mimeType = 'image/jpeg' } = req.body;
+
+      if (!fileBase64) {
+        res.status(400).json({ error: 'fileBase64 payload is required' });
+        return;
+      }
+
+      const analysis = await analyzeVaultDocumentWithGemini({
+        fileBase64,
+        mimeType,
+      });
+
+      res.status(200).json({
+        success: true,
+        analysis,
+      });
+    } catch (err: unknown) {
+      console.warn('Document analysis error:', err);
+      res.status(200).json({
+        success: false,
+        analysis: {
+          title: `Document ${new Date().toLocaleDateString('en-IN')}`,
+          docType: 'OTHER',
+          expiryDate: null,
+          policyOrIdNumber: null,
+          provider: null,
+          emergencyHelpline: null,
+          summary: 'Analysis unavailable',
+          confidence: 0,
+        },
+      });
     }
   }
 );

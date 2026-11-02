@@ -23,6 +23,7 @@ import {
   useVaultDocuments,
   useUploadVaultDocument,
   useDeleteVaultDocument,
+  useAnalyzeVaultDocument,
 } from '../hooks/useFinTrackQueries';
 import { DocumentVaultDto, DocumentVaultType } from '../types/ledger';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
@@ -62,6 +63,8 @@ export const VaultScreen: React.FC = () => {
   const [stagedTitle, setStagedTitle] = useState('');
   const [stagedDocType, setStagedDocType] = useState<DocumentVaultType>('INSURANCE');
   const [stagedExpiry, setStagedExpiry] = useState('');
+  const [stagedMetadata, setStagedMetadata] = useState<Record<string, unknown>>({});
+  const [isAnalyzingDoc, setIsAnalyzingDoc] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   const vaultQuery = useVaultDocuments(activeWorkspaceId, {
@@ -71,10 +74,48 @@ export const VaultScreen: React.FC = () => {
 
   const uploadDocMutation = useUploadVaultDocument(activeWorkspaceId);
   const deleteDocMutation = useDeleteVaultDocument(activeWorkspaceId);
+  const analyzeDocMutation = useAnalyzeVaultDocument(activeWorkspaceId);
 
   const documents: DocumentVaultDto[] = useMemo(() => {
     return vaultQuery.data?.documents || [];
   }, [vaultQuery.data]);
+
+  // Analyzes document with Gemini 2.5 Flash and auto-fills title, doc_type, expiry date & metadata
+  const processAndStageFile = async (base64: string, mime: string, fallbackName: string) => {
+    setIsActionSheetOpen(false);
+    setIsAnalyzingDoc(true);
+    setStagedBase64(base64);
+    setStagedMimeType(mime);
+    setStagedTitle(fallbackName);
+    setStagedDocType('OTHER');
+    setStagedExpiry('');
+    setStagedMetadata({});
+
+    try {
+      const res = await analyzeDocMutation.mutateAsync({
+        fileBase64: base64,
+        mimeType: mime,
+      });
+
+      if (res?.success && res.analysis) {
+        const a = res.analysis;
+        setStagedTitle(a.title || fallbackName);
+        setStagedDocType(a.docType || 'OTHER');
+        setStagedExpiry(a.expiryDate || '');
+        setStagedMetadata({
+          policy_or_id_number: a.policyOrIdNumber,
+          provider: a.provider,
+          emergency_helpline: a.emergencyHelpline,
+          ai_confidence: a.confidence,
+        });
+      }
+    } catch (err: unknown) {
+      console.warn('AI document analysis error, falling back:', err);
+    } finally {
+      setIsAnalyzingDoc(false);
+      setIsDetailsModalOpen(true);
+    }
+  };
 
   // Option 1: Take Photo via Camera
   const handleTakePhoto = async () => {
@@ -98,12 +139,8 @@ export const VaultScreen: React.FC = () => {
         );
 
         if (manip.base64) {
-          setStagedBase64(manip.base64);
-          setStagedMimeType('image/jpeg');
-          setStagedTitle(`Document ${new Date().toLocaleDateString('en-IN')}`);
-          setStagedDocType('BILL');
-          setStagedExpiry('');
-          setIsDetailsModalOpen(true);
+          const fallbackTitle = `Document ${new Date().toLocaleDateString('en-IN')}`;
+          await processAndStageFile(manip.base64, 'image/jpeg', fallbackTitle);
         }
       }
     } catch (err: unknown) {
@@ -135,12 +172,8 @@ export const VaultScreen: React.FC = () => {
         );
 
         if (manip.base64) {
-          setStagedBase64(manip.base64);
-          setStagedMimeType('image/jpeg');
-          setStagedTitle(`Document ${new Date().toLocaleDateString('en-IN')}`);
-          setStagedDocType('BILL');
-          setStagedExpiry('');
-          setIsDetailsModalOpen(true);
+          const fallbackTitle = `Document ${new Date().toLocaleDateString('en-IN')}`;
+          await processAndStageFile(manip.base64, 'image/jpeg', fallbackTitle);
         }
       }
     } catch (err: unknown) {
@@ -166,13 +199,7 @@ export const VaultScreen: React.FC = () => {
 
         const mime = asset.mimeType || (asset.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
         const cleanName = asset.name.replace(/\.[^/.]+$/, '');
-
-        setStagedBase64(base64);
-        setStagedMimeType(mime);
-        setStagedTitle(cleanName);
-        setStagedDocType(mime.includes('pdf') ? 'INSURANCE' : 'BILL');
-        setStagedExpiry('');
-        setIsDetailsModalOpen(true);
+        await processAndStageFile(base64, mime, cleanName);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'File pick error';
@@ -195,6 +222,7 @@ export const VaultScreen: React.FC = () => {
         fileBase64: stagedBase64,
         mimeType: stagedMimeType,
         expiryDate: stagedExpiry.trim() || undefined,
+        metadata: stagedMetadata,
       });
 
       setIsUploading(false);
@@ -650,6 +678,19 @@ export const VaultScreen: React.FC = () => {
           </View>
         </Modal>
       )}
+
+      {/* AI Analyzing Overlay */}
+      {isAnalyzingDoc && (
+        <View style={styles.analyzingOverlay}>
+          <View style={styles.analyzingCard}>
+            <ActivityIndicator size="large" color="#0284C7" />
+            <Text style={styles.analyzingTitle}>Reading Document with AI...</Text>
+            <Text style={styles.analyzingSub}>
+              Detecting policy type, renewal dates & formal title
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -1084,6 +1125,42 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 12,
     fontSize: 14,
+  },
+  analyzingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    zIndex: 9999,
+  },
+  analyzingCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  analyzingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 14,
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  analyzingSub: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+    fontFamily: SYSTEM_FONT_STACK,
   },
 });
 

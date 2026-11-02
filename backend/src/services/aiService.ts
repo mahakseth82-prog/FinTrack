@@ -9,6 +9,11 @@ import {
   cleanAndSanitizeScript,
   LanguagePreference,
 } from './geminiVoiceService';
+import {
+  analyzeVaultDocumentWithGemini,
+  VaultDocAnalysisResult,
+  DocumentVaultType,
+} from './geminiVaultService';
 
 export {
   transcribeAudioWithGroqWhisper,
@@ -18,5 +23,8 @@ export {
   GeminiExtractedDraft,
   cleanAndSanitizeScript,
   LanguagePreference,
+  analyzeVaultDocumentWithGemini,
+  VaultDocAnalysisResult,
+  DocumentVaultType,
 };
 

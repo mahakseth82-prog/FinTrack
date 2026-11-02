@@ -583,6 +583,35 @@ export function useDeleteVaultDocument(workspaceId: string | null) {
   });
 }
 
+export interface VaultDocAnalysisDto {
+  title: string;
+  docType: DocumentVaultType;
+  expiryDate: string | null;
+  policyOrIdNumber: string | null;
+  provider: string | null;
+  emergencyHelpline: string | null;
+  summary: string;
+  confidence: number;
+}
+
+/**
+ * Mutation: Analyzes a document image/PDF via Gemini 2.5 Flash to extract doc_type, expiry date,
+ * clean title, and policy identifiers.
+ */
+export function useAnalyzeVaultDocument(workspaceId: string | null) {
+  return useMutation({
+    mutationFn: (payload: { fileBase64: string; mimeType?: string }) =>
+      apiFetch<{ success: boolean; analysis: VaultDocAnalysisDto }>(
+        '/vault/analyze-document',
+        {
+          method: 'POST',
+          workspaceId,
+          body: payload,
+        }
+      ),
+  });
+}
+
 /**
  * Mutation: Ingest an Android UPI Notification (`NotificationListenerService`)
  * with automatic SHA-256 fingerprint deduplication (`/api/v1/ingestion/upi-notification`).
