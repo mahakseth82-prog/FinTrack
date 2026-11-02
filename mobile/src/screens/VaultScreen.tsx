@@ -400,6 +400,74 @@ export const VaultScreen: React.FC = () => {
     }
   };
 
+  // 1-Tap WhatsApp Summary Card Share
+  const handleShareWhatsApp = async (doc: DocumentVaultDto) => {
+    try {
+      const typeLabel =
+        doc.docType === 'RC_BOOK'
+          ? 'Vehicle RC'
+          : doc.docType === 'INSURANCE'
+          ? 'Insurance Policy'
+          : doc.docType === 'WARRANTY'
+          ? 'Warranty Card'
+          : doc.docType === 'BILL'
+          ? 'Bill Receipt'
+          : doc.docType;
+
+      const lines: string[] = [
+        `📄 *FinTrack Document: ${doc.title}*`,
+        `• *Category:* ${typeLabel}`,
+      ];
+
+      if (doc.metadata?.provider) {
+        lines.push(`• *Insurer / Provider:* ${doc.metadata.provider}`);
+      }
+      if (doc.metadata?.policy_or_id_number) {
+        lines.push(`• *Policy / ID No:* ${doc.metadata.policy_or_id_number}`);
+      }
+      if (doc.expiryDate) {
+        const [y, m, d] = doc.expiryDate.split('-').map(Number);
+        if (y && m && d) {
+          const exp = new Date(y, m - 1, d).toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          });
+          lines.push(`• *Valid Till:* ${exp}`);
+        }
+      }
+      if (doc.metadata?.emergency_helpline) {
+        lines.push(`• *24x7 Helpline:* ${doc.metadata.emergency_helpline}`);
+      }
+      if (doc.fileUrl) {
+        lines.push(`\n📎 *Document Link:* ${doc.fileUrl}`);
+      }
+
+      lines.push('\n_Organized with FinTrack Vault_');
+
+      const message = lines.join('\n');
+      const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        await Share.share({
+          title: doc.title,
+          message,
+        });
+      }
+    } catch (err: unknown) {
+      console.warn('WhatsApp share fallback:', err);
+      try {
+        await Share.share({
+          title: doc.title,
+          message: `Document: ${doc.title}\nLink: ${doc.fileUrl}`,
+        });
+      } catch (_) {}
+    }
+  };
+
   // 1-Tap Calendar Event Generator
   const handleAddToCalendar = async (doc: DocumentVaultDto) => {
     try {
@@ -637,14 +705,25 @@ export const VaultScreen: React.FC = () => {
                   )}
                 </View>
 
-                {/* Delete Action */}
-                <TouchableOpacity
-                  onPress={() => handleDelete(doc)}
-                  style={styles.docDeleteBtn}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons name="trash-outline" size={16} color="#94A3B8" />
-                </TouchableOpacity>
+                {/* Card Action Buttons (WhatsApp Share & Delete) */}
+                <View style={styles.docActionsCol}>
+                  <TouchableOpacity
+                    onPress={() => handleShareWhatsApp(doc)}
+                    style={styles.docWhatsAppBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handleDelete(doc)}
+                    style={styles.docDeleteBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#94A3B8" />
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -875,6 +954,14 @@ export const VaultScreen: React.FC = () => {
               </Text>
               <View style={styles.previewActionsRow}>
                 <TouchableOpacity
+                  onPress={() => handleShareWhatsApp(previewDoc)}
+                  style={[styles.previewActionBtn, { backgroundColor: 'rgba(37, 211, 102, 0.25)' }]}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="logo-whatsapp" size={19} color="#25D366" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
                   onPress={() => handleShareDoc(previewDoc)}
                   style={styles.previewActionBtn}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -960,6 +1047,15 @@ export const VaultScreen: React.FC = () => {
                       </Text>
                     </TouchableOpacity>
                   )}
+
+                  <TouchableOpacity
+                    onPress={() => handleShareWhatsApp(previewDoc)}
+                    style={[styles.footerActionChip, styles.footerWhatsAppChip]}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="logo-whatsapp" size={13} color="#FFFFFF" />
+                    <Text style={styles.footerActionChipText}>Share on WhatsApp</Text>
+                  </TouchableOpacity>
 
                   {Boolean(previewDoc.expiryDate) && (
                     <TouchableOpacity
@@ -1282,8 +1378,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#DC2626',
   },
+  docActionsCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  docWhatsAppBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#ECFDF5',
+  },
   docDeleteBtn: {
-    padding: 8,
+    padding: 6,
   },
   actionSheetOverlay: {
     flex: 1,
@@ -1577,6 +1683,10 @@ const styles = StyleSheet.create({
   footerHelplineChip: {
     backgroundColor: '#059669',
     borderColor: '#047857',
+  },
+  footerWhatsAppChip: {
+    backgroundColor: '#16A34A',
+    borderColor: '#15803D',
   },
   footerCalendarChip: {
     backgroundColor: '#0284C7',
