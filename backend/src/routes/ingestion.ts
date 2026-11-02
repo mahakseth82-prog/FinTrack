@@ -325,7 +325,13 @@ router.post(
       let vaultDocId: string | null = null;
       if (saveToVault && receiptImagePath) {
         try {
-          const { data: vaultDoc } = await req.db!
+          const vMeta = {
+            totalRupees: ocrResult.totalRupees,
+            merchantName,
+            itemsCount: ocrResult.lineItems?.length || 0,
+            file_path: receiptImagePath,
+          };
+          let vRes = await req.db!
             .from('documents_vault')
             .insert({
               workspace_id: workspaceId,
@@ -336,16 +342,29 @@ router.post(
               file_path: receiptImagePath,
               expiry_date: vaultExpiryDate || null,
               linked_transaction_id: tx?.id || null,
-              metadata: {
-                totalRupees: ocrResult.totalRupees,
-                merchantName,
-                itemsCount: ocrResult.lineItems?.length || 0,
-              },
+              metadata: vMeta,
             })
             .select('id')
             .single();
 
-          vaultDocId = vaultDoc?.id || null;
+          if (vRes.error && (vRes.error.message?.includes('file_path') || vRes.error.code === 'PGRST204')) {
+            vRes = await req.db!
+              .from('documents_vault')
+              .insert({
+                workspace_id: workspaceId,
+                user_id: req.userId!,
+                title: vaultTitle?.trim() || `${merchantName} Bill`,
+                doc_type: vaultDocType,
+                file_url: receiptImageUrl || '',
+                expiry_date: vaultExpiryDate || null,
+                linked_transaction_id: tx?.id || null,
+                metadata: vMeta,
+              })
+              .select('id')
+              .single();
+          }
+
+          vaultDocId = vRes.data?.id || null;
         } catch (vaultErr) {
           console.warn('Failed to insert into documents_vault:', vaultErr);
         }

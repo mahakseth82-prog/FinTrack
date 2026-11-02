@@ -236,7 +236,7 @@ router.post(
         ? String(docType).toUpperCase()
         : 'OTHER';
 
-      const { data: doc, error: insertErr } = await req.db!
+      let insertResult = await req.db!
         .from('documents_vault')
         .insert({
           user_id: req.userId!,
@@ -251,6 +251,38 @@ router.post(
         })
         .select('*')
         .single();
+
+      // Graceful schema resilience: If file_path column is not yet refreshed in Supabase schema cache
+      if (
+        insertResult.error &&
+        (insertResult.error.message?.includes('file_path') ||
+          insertResult.error.code === 'PGRST204')
+      ) {
+        console.warn(
+          'Notice: documents_vault file_path column not in schema cache, inserting with metadata fallback.'
+        );
+        const fallbackMetadata = {
+          ...metadata,
+          file_path: filePath,
+        };
+        insertResult = await req.db!
+          .from('documents_vault')
+          .insert({
+            user_id: req.userId!,
+            workspace_id: workspaceId,
+            title: title.trim(),
+            doc_type: normalizedDocType,
+            file_url: secureUrl,
+            expiry_date: expiryDate ? String(expiryDate).slice(0, 10) : null,
+            linked_transaction_id: linkedTransactionId || null,
+            metadata: fallbackMetadata,
+          })
+          .select('*')
+          .single();
+      }
+
+      const doc = insertResult.data;
+      const insertErr = insertResult.error;
 
       if (insertErr || !doc) {
         res.status(500).json({
@@ -347,15 +379,16 @@ router.delete(
       const { id } = req.params;
       const { data: doc } = await req.db!
         .from('documents_vault')
-        .select('file_path')
+        .select('*')
         .eq('id', id)
         .eq('user_id', req.userId!)
         .single();
 
-      if (doc?.file_path) {
+      const pathToDelete = doc?.file_path || doc?.metadata?.file_path;
+      if (pathToDelete) {
         await supabaseAdmin.storage
           .from('documents-vault')
-          .remove([doc.file_path]);
+          .remove([pathToDelete]);
       }
 
       const { error: delErr } = await req.db!
