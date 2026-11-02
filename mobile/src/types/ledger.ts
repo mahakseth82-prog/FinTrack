@@ -7,6 +7,7 @@ export type PaymentChannel =
   | 'CASH'
   | 'CARD'
   | 'BANK_TRANSFER'
+  | 'OTHER'
   | 'UNSPECIFIED'
   | null;
 export type ObligationDirection = 'RECEIVABLE' | 'PAYABLE';

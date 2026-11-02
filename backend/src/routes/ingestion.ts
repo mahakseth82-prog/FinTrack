@@ -241,10 +241,11 @@ router.post(
       const categoryName = ocrResult.suggestedCategory || 'Grocery & Rashan';
       const detectedPayment = ocrResult.paymentVia;
       const validPayments = ['UPI', 'CARD', 'BANK_TRANSFER', 'CASH'];
+      // Golden Rule: 'UNSPECIFIED' is mapped to 'OTHER' in database enum to satisfy PostgreSQL payment_channel constraint
       const paymentVia =
-        detectedPayment && validPayments.includes(detectedPayment) && detectedPayment !== 'UNSPECIFIED'
+        detectedPayment && validPayments.includes(detectedPayment)
           ? detectedPayment
-          : 'UNSPECIFIED';
+          : 'OTHER';
 
       const amountRupees = ocrResult.totalRupees;
       let tx: any = null;

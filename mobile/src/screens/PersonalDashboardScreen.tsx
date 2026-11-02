@@ -11,12 +11,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 import {
   useDashboardSummary,
   useBudgets,
   useTransactions,
+  useCreateTransaction,
   useScanBillOcr,
   useSaveQrTransaction,
 } from '../hooks/useFinTrackQueries';
@@ -145,6 +147,7 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   });
   const scanBillMutation = useScanBillOcr(activeWorkspaceId);
   const saveQrMutation = useSaveQrTransaction(activeWorkspaceId);
+  const createTxMutation = useCreateTransaction(activeWorkspaceId);
 
   // Daily Midnight Reset: Automatically rollover at 12:00 AM local time
   const [currentDayKey, setCurrentDayKey] = useState(() => {
@@ -338,6 +341,10 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         const amtStr = saved.amountFormatted || formatINR(saved.amountPaise);
         const title = saved.title || 'Receipt Expense';
 
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (_) {}
+
         setScanToast({
           type: 'SUCCESS',
           message: `✓ Recorded ${amtStr} to ${title}`,
@@ -346,38 +353,57 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         setTimeout(() => {
           setScanToast(null);
         }, 3500);
+      } else if (response.ocrSummary?.totalRupees && response.ocrSummary.totalRupees > 0) {
+        // Direct auto-save fallback if backend OCR extracted amount
+        const title = response.ocrSummary.merchantName || 'Receipt Expense';
+        const amtRupees = response.ocrSummary.totalRupees;
+        try {
+          await createTxMutation.mutateAsync({
+            kind: 'EXPENSE',
+            amountRupees: amtRupees,
+            merchantOrPayee: title,
+            categoryName: response.ocrSummary.suggestedCategory || 'Grocery & Rashan',
+            paymentVia: 'OTHER',
+            sourceType: 'BILL',
+            description: response.ocrSummary.summaryNote || `Scanned bill from ${title}`,
+          });
+
+          try {
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (_) {}
+
+          setScanToast({
+            type: 'SUCCESS',
+            message: `✓ Recorded ₹${Number(amtRupees).toLocaleString('en-IN')} to ${title}`,
+          });
+          setTimeout(() => setScanToast(null), 3500);
+        } catch (saveErr) {
+          console.warn('Auto-save fallback failed:', saveErr);
+          setScanToast({
+            type: 'ERROR',
+            message: 'Could not auto-save bill.',
+          });
+          setTimeout(() => setScanToast(null), 3500);
+        }
       } else {
+        // Zero-Interruption: Never open manual confirmation modal on bill scan!
         setScanToast({
           type: 'ERROR',
-          message: 'Could not auto-detect amount. Please enter details.',
+          message: 'Could not detect amount from bill photo.',
         });
-
-        const ocr = response.ocrSummary;
-        setPrefillValues({
-          amountRupees: ocr?.totalRupees || undefined,
-          merchantOrPayee: ocr?.merchantName || 'Scanned Receipt',
-          categoryName: ocr?.suggestedCategory || 'Grocery & Rashan',
-          kind: 'EXPENSE',
-          paymentVia: 'UNSPECIFIED',
-          receiptImagePath: response.savedSummary?.receiptImagePath || null,
-          receiptImageUrl: response.savedSummary?.receiptImageUrl || null,
-          description: ocr?.summaryNote || 'Scanned bill receipt',
-        });
-        setIsManualModalOpen(true);
-
         setTimeout(() => {
           setScanToast(null);
-        }, 3000);
+        }, 3500);
       }
-    } catch (err: unknown) {
-      console.warn('Background scan notice:', err);
+    } catch (scanErr: unknown) {
+      console.warn('Background bill scan failed:', scanErr);
       setScanToast({
         type: 'ERROR',
-        message: 'Could not automatically process bill',
+        message: 'Could not process bill image.',
       });
       setTimeout(() => {
         setScanToast(null);
-      }, 3000);
+      }, 3500);
     }
   };
 
@@ -462,16 +488,16 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
         {/* Action Row: Scan Bill & Manual Add (Top Side of Monthly Spending) */}
         <View style={styles.topActionsRow}>
           <TouchableOpacity
-            activeOpacity={0.85}
+            activeOpacity={0.8}
             onPress={handleScanBill}
             disabled={isScanningBill}
             style={styles.topScanBtn}
           >
             {isScanningBill ? (
-              <ActivityIndicator size="small" color="#002970" />
+              <ActivityIndicator size="small" color="#059669" />
             ) : (
               <>
-                <Ionicons name="scan-outline" size={18} color="#002970" />
+                <Ionicons name="camera-outline" size={17} color="#059669" />
                 <Text style={styles.topScanBtnText}>Scan Bill</Text>
               </>
             )}
@@ -737,25 +763,25 @@ const styles = StyleSheet.create({
   },
   topScanBtn: {
     flex: 1,
-    height: 44,
+    height: 42,
     borderRadius: 12,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1.5,
-    borderColor: '#BFDBFE',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.2,
+    borderColor: '#A7F3D0',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
   topScanBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#002970',
+    color: '#059669',
     fontFamily: SYSTEM_FONT_STACK,
   },
   topManualBtn: {
     flex: 1,
-    height: 44,
+    height: 42,
     borderRadius: 12,
     backgroundColor: '#0F172A',
     flexDirection: 'row',

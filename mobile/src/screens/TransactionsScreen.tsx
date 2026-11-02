@@ -368,37 +368,6 @@ export const TransactionsScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* Top Action Buttons: [ 📷 Scan Bill ] & [ ＋ Manual Add ] */}
-      <View style={styles.topActionsRow}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleScanBill}
-          disabled={isScanningBill}
-          style={styles.actionBtnOutline}
-        >
-          {isScanningBill ? (
-            <ActivityIndicator size="small" color="#059669" />
-          ) : (
-            <>
-              <Ionicons name="camera-outline" size={17} color="#059669" />
-              <Text style={styles.actionBtnTextGreen}>Scan Bill</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => {
-            setPrefillValues(undefined);
-            setIsManualModalOpen(true);
-          }}
-          style={styles.actionBtnPrimary}
-        >
-          <Ionicons name="add" size={18} color="#FFFFFF" />
-          <Text style={styles.actionBtnTextWhite}>Manual Add</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Search Bar */}
       <View style={styles.searchBarBox}>
         <Ionicons name="search-outline" size={16} color="#94A3B8" />
@@ -572,14 +541,6 @@ export const TransactionsScreen: React.FC = () => {
           setPrefillValues(undefined);
         }}
         initialValues={prefillValues}
-      />
-
-      {/* Bill Scanner & UPI QR Modal */}
-      <BillScannerModal
-        visible={isScannerModalOpen}
-        onClose={() => setIsScannerModalOpen(false)}
-        onStartBackgroundScan={handleStartBackgroundScan}
-        onQrScannedSuccess={handleQrScannedSuccess}
       />
 
       {/* Sleek Floating Background Scan Toast */}

@@ -126,13 +126,20 @@ router.post(
           kind: 'EXPENSE',
         });
 
+        const detectedPayment = ocrResult.paymentVia;
+        const validPayments = ['UPI', 'CARD', 'BANK_TRANSFER', 'CASH'];
+        const paymentVia =
+          detectedPayment && validPayments.includes(detectedPayment)
+            ? detectedPayment
+            : 'OTHER';
+
         const basePayload: any = {
           workspace_id: workspaceId,
           user_id: req.userId!,
           category_id: categoryId,
           kind: 'EXPENSE',
           amount_paise: amountPaise,
-          payment_via: 'UNSPECIFIED',
+          payment_via: paymentVia,
           merchant_or_payee: merchantName,
           description: ocrResult.summaryNote || `Scanned bill from ${merchantName}`,
           receipt_image_url: receiptImageUrl,
