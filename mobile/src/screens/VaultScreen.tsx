@@ -26,6 +26,10 @@ import {
   useAnalyzeVaultDocument,
 } from '../hooks/useFinTrackQueries';
 import { DocumentVaultDto, DocumentVaultType } from '../types/ledger';
+import {
+  scheduleDocumentRenewalReminder,
+  cancelDocumentRenewalReminder,
+} from '../services/vaultNotificationService';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 
 const FILTER_TABS: { label: string; value: string }[] = [
@@ -207,7 +211,7 @@ export const VaultScreen: React.FC = () => {
     }
   };
 
-  // Commit document upload
+  // Commit document upload with 10-day prior push notification reminder
   const handleSaveStagedDocument = async () => {
     if (!stagedTitle.trim()) {
       Alert.alert('Title Required', 'Please enter a name for this document.');
@@ -216,19 +220,41 @@ export const VaultScreen: React.FC = () => {
 
     setIsUploading(true);
     try {
+      const cleanExpiry = stagedExpiry.trim();
+      let notificationId: string | null = null;
+
+      // 10-day prior renewal notification scheduling
+      if (cleanExpiry && /^\d{4}-\d{2}-\d{2}$/.test(cleanExpiry)) {
+        notificationId = await scheduleDocumentRenewalReminder({
+          title: stagedTitle.trim(),
+          expiryDateStr: cleanExpiry,
+        });
+      }
+
+      const updatedMetadata = {
+        ...stagedMetadata,
+        notification_id: notificationId,
+        reminder_scheduled: Boolean(notificationId),
+      };
+
       await uploadDocMutation.mutateAsync({
         title: stagedTitle.trim(),
         docType: stagedDocType,
         fileBase64: stagedBase64,
         mimeType: stagedMimeType,
-        expiryDate: stagedExpiry.trim() || undefined,
-        metadata: stagedMetadata,
+        expiryDate: cleanExpiry || undefined,
+        metadata: updatedMetadata,
       });
 
       setIsUploading(false);
       setIsDetailsModalOpen(false);
       setStagedBase64('');
-      Alert.alert('Saved to Vault', `"${stagedTitle.trim()}" has been securely stored.`);
+      Alert.alert(
+        'Saved to Vault',
+        notificationId
+          ? `"${stagedTitle.trim()}" has been securely stored. A 10-day renewal alert has been scheduled.`
+          : `"${stagedTitle.trim()}" has been securely stored.`
+      );
     } catch (err: unknown) {
       setIsUploading(false);
       const msg = err instanceof Error ? err.message : 'Failed to upload document';
@@ -236,7 +262,7 @@ export const VaultScreen: React.FC = () => {
     }
   };
 
-  // Delete document
+  // Delete document and auto-cancel scheduled notifications
   const handleDelete = (doc: DocumentVaultDto) => {
     Alert.alert(
       'Delete Document',
@@ -248,6 +274,10 @@ export const VaultScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
+              const notifId = doc.metadata?.notification_id as string | undefined;
+              if (notifId) {
+                await cancelDocumentRenewalReminder(notifId);
+              }
               await deleteDocMutation.mutateAsync(doc.id);
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : 'Failed to delete';
