@@ -11,6 +11,8 @@ import {
   Alert,
   Modal,
   Platform,
+  Linking,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -395,6 +397,33 @@ export const VaultScreen: React.FC = () => {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to share';
       Alert.alert('Share Error', msg);
+    }
+  };
+
+  // 1-Tap Calendar Event Generator
+  const handleAddToCalendar = async (doc: DocumentVaultDto) => {
+    try {
+      if (!doc.expiryDate) return;
+      const title = `Renewal Due: ${doc.title}`;
+      const policyId = (doc.metadata?.policy_or_id_number as string) || '';
+      const helpline = (doc.metadata?.emergency_helpline as string) || '';
+      const provider = (doc.metadata?.provider as string) || '';
+
+      const lines = [
+        `📅 ${title}`,
+        `Due Date: ${doc.expiryDate}`,
+        provider ? `Provider: ${provider}` : '',
+        policyId ? `Policy/ID: ${policyId}` : '',
+        helpline ? `Helpline: ${helpline}` : '',
+        'Saved via FinTrack Digital Document Vault',
+      ].filter(Boolean);
+
+      await Share.share({
+        title,
+        message: lines.join('\n'),
+      });
+    } catch (err: unknown) {
+      console.warn('Calendar share notice:', err);
     }
   };
 
@@ -872,6 +901,77 @@ export const VaultScreen: React.FC = () => {
               <View style={styles.previewUnavailable}>
                 <Ionicons name="alert-circle-outline" size={48} color="#94A3B8" />
                 <Text style={styles.previewUnavailableText}>Preview is not available.</Text>
+              </View>
+            )}
+
+            {/* Quick Action Pill Bar for Claims, Policy Numbers & Calendar */}
+            {Boolean(
+              previewDoc.metadata?.policy_or_id_number ||
+              previewDoc.metadata?.emergency_helpline ||
+              previewDoc.metadata?.provider ||
+              previewDoc.expiryDate
+            ) && (
+              <View style={styles.previewActionFooter}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.previewFooterRow}
+                >
+                  {Boolean(previewDoc.metadata?.provider) && (
+                    <View style={styles.footerInfoChip}>
+                      <Ionicons name="shield-checkmark" size={13} color="#0284C7" />
+                      <Text style={styles.footerInfoChipText}>
+                        {String(previewDoc.metadata?.provider)}
+                      </Text>
+                    </View>
+                  )}
+
+                  {Boolean(previewDoc.metadata?.policy_or_id_number) && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const num = String(previewDoc.metadata?.policy_or_id_number);
+                        Alert.alert('Policy / ID Number', num, [
+                          { text: 'Share / Copy', onPress: () => Share.share({ message: num }) },
+                          { text: 'OK' },
+                        ]);
+                      }}
+                      style={styles.footerActionChip}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="copy-outline" size={13} color="#FFFFFF" />
+                      <Text style={styles.footerActionChipText}>
+                        ID: {String(previewDoc.metadata?.policy_or_id_number)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {Boolean(previewDoc.metadata?.emergency_helpline) && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const tel = String(previewDoc.metadata?.emergency_helpline).replace(/[^0-9+]/g, '');
+                        Linking.openURL(`tel:${tel}`);
+                      }}
+                      style={[styles.footerActionChip, styles.footerHelplineChip]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="call" size={13} color="#FFFFFF" />
+                      <Text style={styles.footerActionChipText}>
+                        Helpline: {String(previewDoc.metadata?.emergency_helpline)}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {Boolean(previewDoc.expiryDate) && (
+                    <TouchableOpacity
+                      onPress={() => handleAddToCalendar(previewDoc)}
+                      style={[styles.footerActionChip, styles.footerCalendarChip]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="calendar-outline" size={13} color="#FFFFFF" />
+                      <Text style={styles.footerActionChipText}>Add to Calendar</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -1424,6 +1524,63 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 18,
     fontFamily: SYSTEM_FONT_STACK,
+  },
+  previewActionFooter: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 40 : 24,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    paddingHorizontal: 16,
+  },
+  previewFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  footerInfoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F0F9FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  footerInfoChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0284C7',
+  },
+  footerActionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  footerActionChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  footerHelplineChip: {
+    backgroundColor: '#059669',
+    borderColor: '#047857',
+  },
+  footerCalendarChip: {
+    backgroundColor: '#0284C7',
+    borderColor: '#0369A1',
   },
 });
 
