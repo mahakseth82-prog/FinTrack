@@ -34,13 +34,63 @@ import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
 
 const FILTER_TABS: { label: string; value: string }[] = [
   { label: 'All', value: 'ALL' },
-  { label: 'Bills', value: 'BILL' },
+  { label: 'Expiring Soon', value: 'EXPIRING_SOON' },
   { label: 'Insurance', value: 'INSURANCE' },
+  { label: 'Bills', value: 'BILL' },
   { label: 'Warranties', value: 'WARRANTY' },
   { label: 'Vehicle / RC', value: 'RC_BOOK' },
   { label: 'Invoices', value: 'INVOICE' },
   { label: 'Other', value: 'OTHER' },
 ];
+
+export const getExpiryStatus = (expiryDateStr: string | null | undefined) => {
+  if (!expiryDateStr) return null;
+  const [y, m, d] = expiryDateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+
+  const expDate = new Date(y, m - 1, d, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffMs = expDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  const formattedDate = expDate.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+
+  if (diffDays < 0) {
+    return {
+      type: 'EXPIRED' as const,
+      label: `Expired on ${formattedDate}`,
+      badgeBg: '#FEF2F2',
+      badgeBorder: '#FECACA',
+      badgeText: '#DC2626',
+      icon: 'alert-circle' as const,
+    };
+  } else if (diffDays <= 10) {
+    const dayLabel = diffDays === 0 ? 'today' : diffDays === 1 ? 'in 1 day' : `in ${diffDays} days`;
+    return {
+      type: 'EXPIRING_SOON' as const,
+      label: `⚠️ Renewal due ${dayLabel}`,
+      badgeBg: '#FFFBEB',
+      badgeBorder: '#FDE68A',
+      badgeText: '#D97706',
+      icon: 'warning' as const,
+    };
+  } else {
+    return {
+      type: 'ACTIVE' as const,
+      label: `Valid till: ${formattedDate}`,
+      badgeBg: '#F8FAFC',
+      badgeBorder: '#E2E8F0',
+      badgeText: '#64748B',
+      icon: 'calendar-outline' as const,
+    };
+  }
+};
 
 const VAULT_CATEGORIES: { label: string; value: DocumentVaultType }[] = [
   { label: 'Insurance Policy', value: 'INSURANCE' },
@@ -72,7 +122,7 @@ export const VaultScreen: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
 
   const vaultQuery = useVaultDocuments(activeWorkspaceId, {
-    docType: selectedType,
+    docType: selectedType === 'EXPIRING_SOON' ? 'ALL' : selectedType,
     search: searchQuery,
   });
 
@@ -80,9 +130,42 @@ export const VaultScreen: React.FC = () => {
   const deleteDocMutation = useDeleteVaultDocument(activeWorkspaceId);
   const analyzeDocMutation = useAnalyzeVaultDocument(activeWorkspaceId);
 
-  const documents: DocumentVaultDto[] = useMemo(() => {
+  const rawDocuments: DocumentVaultDto[] = useMemo(() => {
     return vaultQuery.data?.documents || [];
   }, [vaultQuery.data]);
+
+  // Count documents expiring within 30 days or already expired
+  const expiringSoonCount = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return rawDocuments.filter((doc) => {
+      if (!doc.expiryDate) return false;
+      const [y, m, d] = doc.expiryDate.split('-').map(Number);
+      if (!y || !m || !d) return false;
+      const exp = new Date(y, m - 1, d, 0, 0, 0);
+      const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays <= 30;
+    }).length;
+  }, [rawDocuments]);
+
+  // Filtered documents list
+  const documents: DocumentVaultDto[] = useMemo(() => {
+    if (selectedType === 'EXPIRING_SOON') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return rawDocuments
+        .filter((doc) => {
+          if (!doc.expiryDate) return false;
+          const [y, m, d] = doc.expiryDate.split('-').map(Number);
+          if (!y || !m || !d) return false;
+          const exp = new Date(y, m - 1, d, 0, 0, 0);
+          const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          return diffDays <= 30;
+        })
+        .sort((a, b) => (a.expiryDate || '').localeCompare(b.expiryDate || ''));
+    }
+    return rawDocuments;
+  }, [rawDocuments, selectedType]);
 
   // Analyzes document with Gemini 2.5 Flash and auto-fills title, doc_type, expiry date & metadata
   const processAndStageFile = async (base64: string, mime: string, fallbackName: string) => {
@@ -377,6 +460,12 @@ export const VaultScreen: React.FC = () => {
         >
           {FILTER_TABS.map((tab) => {
             const isSelected = selectedType === tab.value;
+            const isExpiringTab = tab.value === 'EXPIRING_SOON';
+            const label =
+              isExpiringTab && expiringSoonCount > 0
+                ? `⚠️ Expiring (${expiringSoonCount})`
+                : tab.label;
+
             return (
               <TouchableOpacity
                 key={tab.value}
@@ -384,6 +473,7 @@ export const VaultScreen: React.FC = () => {
                 style={[
                   styles.filterChip,
                   isSelected && styles.filterChipActive,
+                  isExpiringTab && expiringSoonCount > 0 && !isSelected && styles.filterChipExpiringWarn,
                 ]}
                 activeOpacity={0.8}
               >
@@ -391,9 +481,10 @@ export const VaultScreen: React.FC = () => {
                   style={[
                     styles.filterChipText,
                     isSelected && styles.filterChipTextActive,
+                    isExpiringTab && expiringSoonCount > 0 && !isSelected && styles.filterChipExpiringWarnText,
                   ]}
                 >
-                  {tab.label}
+                  {label}
                 </Text>
               </TouchableOpacity>
             );
@@ -439,6 +530,7 @@ export const VaultScreen: React.FC = () => {
 
           {documents.map((doc) => {
             const badge = getDocTypeBadge(doc.docType);
+            const expiryStatus = getExpiryStatus(doc.expiryDate);
             const isPdf = doc.fileUrl?.toLowerCase().includes('.pdf');
             const formattedDate = new Date(doc.createdAt).toLocaleDateString('en-IN', {
               day: 'numeric',
@@ -489,10 +581,29 @@ export const VaultScreen: React.FC = () => {
                     <Text style={styles.docCardDate}>{formattedDate}</Text>
                   </View>
 
-                  {doc.expiryDate && (
-                    <View style={styles.expiryRow}>
-                      <Ionicons name="alarm-outline" size={12} color="#D97706" />
-                      <Text style={styles.expiryText}>Expires: {doc.expiryDate}</Text>
+                  {expiryStatus && (
+                    <View
+                      style={[
+                        styles.expiryBadge,
+                        {
+                          backgroundColor: expiryStatus.badgeBg,
+                          borderColor: expiryStatus.badgeBorder,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={expiryStatus.icon}
+                        size={11}
+                        color={expiryStatus.badgeText}
+                      />
+                      <Text
+                        style={[
+                          styles.expiryBadgeText,
+                          { color: expiryStatus.badgeText },
+                        ]}
+                      >
+                        {expiryStatus.label}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -640,6 +751,64 @@ export const VaultScreen: React.FC = () => {
                 placeholderTextColor="#94A3B8"
                 style={styles.inputField}
               />
+
+              {/* Quick Duration Presets for 1-Tap Expiry Calculation */}
+              <View style={styles.quickPresetsRow}>
+                <TouchableOpacity
+                  onPress={() => {
+                    const d = new Date();
+                    d.setMonth(d.getMonth() + 6);
+                    setStagedExpiry(d.toISOString().slice(0, 10));
+                  }}
+                  style={styles.presetChip}
+                >
+                  <Text style={styles.presetChipText}>+6 Mo</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    const d = new Date();
+                    d.setFullYear(d.getFullYear() + 1);
+                    setStagedExpiry(d.toISOString().slice(0, 10));
+                  }}
+                  style={[styles.presetChip, styles.presetChipHighlight]}
+                >
+                  <Text style={[styles.presetChipText, styles.presetChipHighlightText]}>
+                    +1 Yr (Insurance)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    const d = new Date();
+                    d.setFullYear(d.getFullYear() + 2);
+                    setStagedExpiry(d.toISOString().slice(0, 10));
+                  }}
+                  style={styles.presetChip}
+                >
+                  <Text style={styles.presetChipText}>+2 Yrs (Warranty)</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    const d = new Date();
+                    d.setFullYear(d.getFullYear() + 5);
+                    setStagedExpiry(d.toISOString().slice(0, 10));
+                  }}
+                  style={styles.presetChip}
+                >
+                  <Text style={styles.presetChipText}>+5 Yrs (RC)</Text>
+                </TouchableOpacity>
+
+                {Boolean(stagedExpiry) && (
+                  <TouchableOpacity
+                    onPress={() => setStagedExpiry('')}
+                    style={styles.presetChipClear}
+                  >
+                    <Text style={styles.presetChipClearText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {/* Save Button */}
               <TouchableOpacity
@@ -805,6 +974,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     borderColor: '#0F172A',
   },
+  filterChipExpiringWarn: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
   filterChipText: {
     fontSize: 12,
     fontWeight: '600',
@@ -812,6 +985,10 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+  },
+  filterChipExpiringWarnText: {
+    color: '#D97706',
+    fontWeight: '700',
   },
   centerBox: {
     flex: 1,
@@ -948,6 +1125,62 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#D97706',
     fontWeight: '600',
+  },
+  expiryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  expiryBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  quickPresetsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  presetChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  presetChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  presetChipHighlight: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  presetChipHighlightText: {
+    color: '#059669',
+    fontWeight: '700',
+  },
+  presetChipClear: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  presetChipClearText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
   },
   docDeleteBtn: {
     padding: 8,
