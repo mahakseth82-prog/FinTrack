@@ -20,84 +20,48 @@ export interface GeminiBillOcrResult {
   confidence: number;
 }
 
-const BILL_OCR_SCHEMA: Schema = {
+const FAST_RECEIPT_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
-    merchantName: {
-      type: Type.STRING,
-      description: 'Shop, store, kirana, or restaurant name printed/written on the bill.',
-    },
-    billDate: {
-      type: Type.STRING,
-      nullable: true,
-      description: 'Bill date in YYYY-MM-DD format if visible, otherwise null.',
-    },
-    totalRupees: {
+    amount: {
       type: Type.NUMBER,
       nullable: true,
-      description: 'Final grand total amount in Indian Rupees.',
+      description: 'Total amount in INR/Rupees',
     },
-    suggestedCategory: {
+    merchant: {
       type: Type.STRING,
-      description:
-        'Category such as "Grocery & Rashan", "Chai & Dining", "Petrol & Travel", "Bills & Recharge", or "Dukaan Stock / Maal".',
-    },
-    paymentVia: {
-      type: Type.STRING,
-      enum: ['UPI', 'CASH', 'CARD', 'BANK_TRANSFER', 'UNSPECIFIED'],
       nullable: true,
-      description:
-        'Payment mode ONLY if explicitly printed on receipt (e.g. "PAID VIA UPI", "CASH PAID", "CARD"). If not explicitly printed, you MUST return "UNSPECIFIED". Strictly do NOT default to CASH.',
+      description: 'Merchant or shop name',
     },
-    lineItems: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          name: { type: Type.STRING },
-          quantity: { type: Type.NUMBER },
-          priceRupees: { type: Type.NUMBER },
-        },
-        required: ['name', 'quantity', 'priceRupees'],
-      },
-    },
-    summaryNote: {
+    date: {
       type: Type.STRING,
-      description: 'Short Hinglish summary of the items on the bill.',
-    },
-    confidence: {
-      type: Type.NUMBER,
-      description: 'OCR confidence between 0.0 and 1.0.',
+      nullable: true,
+      description: 'Receipt date in YYYY-MM-DD format',
     },
   },
-  required: [
-    'merchantName',
-    'suggestedCategory',
-    'paymentVia',
-    'lineItems',
-    'summaryNote',
-    'confidence',
-  ],
+  required: ['amount', 'merchant', 'date'],
 };
 
 /**
- * Extracts structured merchant, line items, and total Rupees from a paper bill photo
- * using Google Gemini Vision. Deterministic code converts Rupees to Paise afterwards.
+ * Ultra-fast receipt OCR parser using Gemini 1.5 Flash with strict 15-second timeout.
+ * Extracts:
+ * 1. total_amount (number or null)
+ * 2. merchant_name (concise string or null)
+ * 3. date (YYYY-MM-DD or null)
  */
 export async function extractBillWithGeminiVision(params: {
   imageBase64: string;
   mimeType: string;
-  workspaceMode: 'PERSONAL' | 'BUSINESS';
+  workspaceMode?: 'PERSONAL' | 'BUSINESS';
 }): Promise<GeminiBillOcrResult> {
-  const systemPrompt = `You are FinTrack's Indian Receipt & Kirana Parchi OCR reader.
-Active workspace mode: ${params.workspaceMode}.
-Extract the shop/merchant name, bill date (YYYY-MM-DD), grand total in Rupees (totalRupees), line items, and a concise Hinglish summaryNote.
-Never invent totals if unreadable; set totalRupees to null if completely missing.
-STRICT PAYMENT METHOD RULE:
-Only set paymentVia if the payment mode (UPI, CASH, CARD, BANK_TRANSFER) is explicitly and visibly printed on the bill/receipt. If it is NOT explicitly printed, you MUST return "UNSPECIFIED". Under NO circumstances should you default or assume "CASH".`;
-
   try {
-    const response = await ai.models.generateContent({
+    const promptText = `Extract the following from this receipt image:
+1. total_amount (number or null)
+2. merchant_name (concise string or null)
+3. date (YYYY-MM-DD or null)
+Output JSON only: {"amount": number, "merchant": string, "date": string}`;
+
+    const ocrCall = ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: [
         {
@@ -106,30 +70,61 @@ Only set paymentVia if the payment mode (UPI, CASH, CARD, BANK_TRANSFER) is expl
             mimeType: params.mimeType,
           },
         },
-        'Read this Indian bill/receipt image and extract the structured JSON draft.',
+        promptText,
       ],
       config: {
-        systemInstruction: systemPrompt,
+        systemInstruction:
+          'You are an Indian receipt and bill OCR extractor. Extract the grand total in Indian Rupees as a number (amount), the shop/store/merchant name as string (merchant), and receipt date as string in YYYY-MM-DD format (date). If missing or ambiguous, use null.',
         responseMimeType: 'application/json',
-        responseSchema: BILL_OCR_SCHEMA,
+        responseSchema: FAST_RECEIPT_SCHEMA,
         temperature: 0.1,
       },
     });
 
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('OCR request timed out after 15s')), 15000)
+    );
+
+    const response = await Promise.race([ocrCall, timeoutPromise]);
     const rawText = response.text || '{}';
-    return JSON.parse(rawText) as GeminiBillOcrResult;
-  } catch (err: unknown) {
-    console.warn('⚠️ Gemini OCR extraction error, providing graceful fallback:', err);
+    const parsed = JSON.parse(rawText);
+
+    const amount =
+      typeof parsed.amount === 'number' && !isNaN(parsed.amount) && parsed.amount > 0
+        ? parsed.amount
+        : null;
+    const merchant =
+      parsed.merchant && typeof parsed.merchant === 'string' && parsed.merchant.trim().length > 0
+        ? parsed.merchant.trim()
+        : amount
+        ? 'Receipt Expense'
+        : 'Scanned Bill';
+    const date =
+      parsed.date && typeof parsed.date === 'string'
+        ? parsed.date
+        : new Date().toISOString().slice(0, 10);
+
     return {
-      merchantName: 'Scanned Bill',
+      merchantName: merchant,
+      billDate: date,
+      totalRupees: amount,
+      suggestedCategory: 'Grocery & Rashan',
+      paymentVia: 'UNSPECIFIED',
+      lineItems: [],
+      summaryNote: merchant ? `Receipt from ${merchant}` : 'Receipt Expense',
+      confidence: amount ? 0.95 : 0.4,
+    };
+  } catch (err: unknown) {
+    console.warn('⚠️ Gemini OCR error/timeout, providing clean fallback:', err);
+    return {
+      merchantName: 'Receipt Expense',
       billDate: new Date().toISOString().slice(0, 10),
       totalRupees: null,
       suggestedCategory: 'Bills & Utilities',
       paymentVia: 'UNSPECIFIED',
       lineItems: [],
-      summaryNote: 'Scanned receipt (please confirm amount and details)',
+      summaryNote: 'Scanned receipt (manual review)',
       confidence: 0.0,
     };
   }
 }
-

@@ -13,7 +13,11 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { SYSTEM_FONT_STACK, EMERALD_THEME } from '../theme/colors';
-import { useTransactions, useScanBillOcr } from '../hooks/useFinTrackQueries';
+import {
+  useTransactions,
+  useScanBillOcr,
+  useSaveQrTransaction,
+} from '../hooks/useFinTrackQueries';
 import { TransactionDto, PaymentChannel } from '../types/ledger';
 import { formatINR } from '../utils/paise';
 import { SkeletonLoader, EmptyStateCard } from '../components/QueryStateViews';
@@ -103,8 +107,13 @@ export const TransactionsScreen: React.FC = () => {
     description?: string;
   } | undefined>(undefined);
   const [isScanningBill, setIsScanningBill] = useState(false);
+  const [scanToast, setScanToast] = useState<{
+    type: 'PROCESSING' | 'SUCCESS' | 'ERROR';
+    message: string;
+  } | null>(null);
 
   const scanBillMutation = useScanBillOcr(activeWorkspaceId);
+  const saveQrMutation = useSaveQrTransaction(activeWorkspaceId);
 
   const [yearNum, monthNum] = selectedMonthYear.split('-').map(Number);
   const monthLabel = `${MONTH_NAMES[monthNum - 1]} ${yearNum}`;
@@ -211,6 +220,111 @@ export const TransactionsScreen: React.FC = () => {
 
   const handleScanBill = () => {
     setIsScannerModalOpen(true);
+  };
+
+  const handleStartBackgroundScan = async (
+    compressedBase64: string,
+    saveToVault?: boolean
+  ) => {
+    setScanToast({
+      type: 'PROCESSING',
+      message: 'Reading bill receipt...',
+    });
+
+    try {
+      const response = await scanBillMutation.mutateAsync({
+        imageBase64: compressedBase64,
+        mimeType: 'image/jpeg',
+        saveToVault: Boolean(saveToVault),
+        vaultDocType: 'BILL',
+      });
+
+      if (response.autoSaved && response.savedSummary) {
+        const saved = response.savedSummary;
+        const amtStr = saved.amountFormatted || formatINR(saved.amountPaise);
+        const title = saved.title || 'Receipt Expense';
+
+        setScanToast({
+          type: 'SUCCESS',
+          message: `✓ Recorded ${amtStr} to ${title}`,
+        });
+
+        setTimeout(() => {
+          setScanToast(null);
+        }, 3500);
+      } else {
+        setScanToast({
+          type: 'ERROR',
+          message: 'Could not auto-detect amount. Please enter details.',
+        });
+
+        const ocr = response.ocrSummary;
+        setPrefillValues({
+          amountRupees: ocr?.totalRupees || undefined,
+          merchantOrPayee: ocr?.merchantName || 'Scanned Receipt',
+          categoryName: ocr?.suggestedCategory || 'Grocery & Rashan',
+          kind: 'EXPENSE',
+          paymentVia: 'UNSPECIFIED',
+          receiptImagePath: response.savedSummary?.receiptImagePath || null,
+          receiptImageUrl: response.savedSummary?.receiptImageUrl || null,
+          description: ocr?.summaryNote || 'Scanned bill receipt',
+        });
+        setIsManualModalOpen(true);
+
+        setTimeout(() => {
+          setScanToast(null);
+        }, 3000);
+      }
+    } catch (err: unknown) {
+      console.warn('Background scan notice:', err);
+      setScanToast({
+        type: 'ERROR',
+        message: 'Could not process bill automatically',
+      });
+      setTimeout(() => {
+        setScanToast(null);
+      }, 3000);
+    }
+  };
+
+  // Instant Zero-Touch UPI QR Auto-Save
+  const handleQrScannedSuccess = async (info: {
+    amountRupees?: number;
+    merchantOrPayee: string;
+    note?: string;
+  }) => {
+    const rawAmt = info.amountRupees;
+    const amtStr =
+      rawAmt && rawAmt > 0
+        ? `₹${Number(rawAmt).toLocaleString('en-IN', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`
+        : '';
+    const merchant = info.merchantOrPayee || 'UPI Merchant';
+
+    setScanToast({
+      type: 'SUCCESS',
+      message: amtStr
+        ? `✓ Recorded ${amtStr} to ${merchant}`
+        : `✓ Recorded UPI payment to ${merchant}`,
+    });
+
+    try {
+      await saveQrMutation.mutateAsync({
+        amountRupees: rawAmt || 0,
+        merchantOrPayee: merchant,
+        paymentMethod: 'UPI',
+        source: 'QR_SCAN',
+        note: info.note || `Paid to ${merchant} via UPI QR`,
+      });
+    } catch (err: unknown) {
+      console.warn('QR auto-save notice:', err);
+    }
+
+    setTimeout(() => {
+      setScanToast(null);
+    }, 3500);
   };
 
   const handleBillScanned = (res: ScannedBillResult) => {
@@ -464,8 +578,34 @@ export const TransactionsScreen: React.FC = () => {
       <BillScannerModal
         visible={isScannerModalOpen}
         onClose={() => setIsScannerModalOpen(false)}
-        onBillScanned={handleBillScanned}
+        onStartBackgroundScan={handleStartBackgroundScan}
+        onQrScannedSuccess={handleQrScannedSuccess}
       />
+
+      {/* Sleek Floating Background Scan Toast */}
+      {scanToast && (
+        <View
+          style={[
+            styles.floatingScanToast,
+            scanToast.type === 'PROCESSING' && styles.scanToastProcessing,
+            scanToast.type === 'SUCCESS' && styles.scanToastSuccess,
+            scanToast.type === 'ERROR' && styles.scanToastError,
+          ]}
+        >
+          {scanToast.type === 'PROCESSING' && (
+            <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+          )}
+          <Text
+            style={[
+              styles.scanToastText,
+              scanToast.type === 'SUCCESS' && styles.scanToastTextSuccess,
+              scanToast.type === 'ERROR' && styles.scanToastTextError,
+            ]}
+          >
+            {scanToast.message}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -692,5 +832,47 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#94A3B8',
     marginTop: 2,
+  },
+  floatingScanToast: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: '#0F172A',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 999,
+  },
+  scanToastProcessing: {
+    backgroundColor: '#0F172A',
+  },
+  scanToastSuccess: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  scanToastError: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  scanToastText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: SYSTEM_FONT_STACK,
+  },
+  scanToastTextSuccess: {
+    color: '#065F46',
+  },
+  scanToastTextError: {
+    color: '#991B1B',
   },
 });

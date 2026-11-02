@@ -26,9 +26,10 @@ import { InsightsScreen } from '../screens/InsightsScreen';
 import { BusinessDashboardScreen } from '../screens/BusinessDashboardScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { CustomerDetailScreen } from '../screens/CustomerDetailScreen';
+import { VaultScreen } from '../screens/VaultScreen';
 import { SkeletonLoader, ErrorRetryCard } from '../components/QueryStateViews';
 
-export type ActiveTab = 'HOME' | 'TRANSACTIONS' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE';
+export type ActiveTab = 'HOME' | 'TRANSACTIONS' | 'VAULT' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE';
 
 export const RootNavigator: React.FC = () => {
   const { user, hasSelectedLanguage } = useAuth();
@@ -368,6 +369,8 @@ export const RootNavigator: React.FC = () => {
             />
           ) : activeTab === 'TRANSACTIONS' ? (
             <TransactionsScreen />
+          ) : activeTab === 'VAULT' ? (
+            <VaultScreen />
           ) : activeTab === 'INSIGHTS' ? (
             <InsightsScreen />
           ) : activeTab === 'UDHAAR' ? (
@@ -497,7 +500,31 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Tab 3: Insights */}
+            {/* Tab 3: Vault */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setActiveTab('VAULT')}
+              style={styles.tabItem}
+            >
+              <Ionicons
+                name={activeTab === 'VAULT' ? 'folder' : 'folder-outline'}
+                size={22}
+                color={activeTab === 'VAULT' ? EMERALD_THEME.emeraldGreen : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  activeTab === 'VAULT' && {
+                    color: EMERALD_THEME.emeraldGreen,
+                    fontWeight: '700',
+                  },
+                ]}
+              >
+                {isHi ? 'वॉल्ट' : 'Vault'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Tab 4: Insights */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setActiveTab('INSIGHTS')}
@@ -521,7 +548,7 @@ export const RootNavigator: React.FC = () => {
               </Text>
             </TouchableOpacity>
 
-            {/* Tab 4: Profile */}
+            {/* Tab 5: Profile */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={() => setActiveTab('PROFILE')}

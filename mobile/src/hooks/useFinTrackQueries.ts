@@ -122,8 +122,42 @@ export function useCreateTransaction(workspaceId: string | null) {
       paymentVia: PaymentChannel;
       receiptImagePath?: string | null;
       receiptImageUrl?: string | null;
+      sourceType?: string;
     }) =>
       apiFetch('/transactions', {
+        method: 'POST',
+        workspaceId,
+        body: payload,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
+    },
+  });
+}
+
+/**
+ * Mutation: Zero-touch auto-save for scanned UPI / invoice QR directly to Supabase.
+ */
+export function useSaveQrTransaction(workspaceId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: {
+      amountRupees?: number;
+      merchantOrPayee: string;
+      paymentMethod?: string;
+      source?: string;
+      note?: string;
+      categoryName?: string;
+    }) =>
+      apiFetch<{
+        success: boolean;
+        transaction: any;
+        amountFormatted: string;
+        merchant: string;
+      }>('/ai/qr-save', {
         method: 'POST',
         workspaceId,
         body: payload,
@@ -662,6 +696,7 @@ export function useUpdateTransaction(workspaceId: string | null) {
     },
   });
 }
+
 
 
 

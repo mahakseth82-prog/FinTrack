@@ -1,9 +1,1 @@
-import React from 'react';
-import { DocumentVaultModal } from '../components/DocumentVaultModal';
-
-export const DocumentVaultScreen: React.FC<{
-  onClose?: () => void;
-}> = ({ onClose }) => {
-  return <DocumentVaultModal visible={true} onClose={onClose || (() => {})} />;
-};
-
+export { VaultScreen as DocumentVaultScreen, VaultScreen as default } from './VaultScreen';

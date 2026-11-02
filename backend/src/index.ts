@@ -7,6 +7,7 @@ import voiceRoutes from './routes/voice';
 import reminderRoutes from './routes/reminders';
 import ingestionRoutes from './routes/ingestion';
 import vaultRoutes from './routes/vault';
+import aiRoutes from './routes/aiRoutes';
 
 const app = express();
 
@@ -37,6 +38,7 @@ app.use('/api/v1', voiceRoutes);
 app.use('/api/v1', reminderRoutes);
 app.use('/api/v1', ingestionRoutes);
 app.use('/api/v1', vaultRoutes);
+app.use('/api/v1', aiRoutes);
 
 if (require.main === module) {
   app.listen(env.PORT, '0.0.0.0', () => {

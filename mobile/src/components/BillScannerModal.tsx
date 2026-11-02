@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as Haptics from 'expo-haptics';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import {
   useScanBillOcr,
@@ -37,6 +38,12 @@ interface BillScannerModalProps {
   visible: boolean;
   onClose: () => void;
   mode?: 'EXPENSE' | 'VAULT';
+  onStartBackgroundScan?: (compressedBase64: string, saveToVault?: boolean) => void;
+  onQrScannedSuccess?: (info: {
+    amountRupees?: number;
+    merchantOrPayee: string;
+    note?: string;
+  }) => void;
   onBillScanned?: (result: ScannedBillResult) => void;
 }
 
@@ -85,6 +92,8 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
   visible,
   onClose,
   mode = 'EXPENSE',
+  onStartBackgroundScan,
+  onQrScannedSuccess,
   onBillScanned,
 }) => {
   const { activeWorkspaceId } = useFinTrackTheme();
@@ -117,8 +126,8 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
     }
   }, [visible, mode]);
 
-  // Handle native barcode/QR scanning
-  const handleBarcodeScanned = (result: BarcodeScanningResult) => {
+  // Handle native barcode/QR scanning (Instant Zero-Touch Auto-Save)
+  const handleBarcodeScanned = async (result: BarcodeScanningResult) => {
     if (hasScannedQr || isProcessing) return;
 
     const data = result.data?.trim();
@@ -130,45 +139,44 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
       const name = upiData.payeeName || upiData.payeeVpa || 'UPI Merchant';
       const amount = upiData.amountRupees;
 
-      Alert.alert(
-        'UPI QR Code Scanned',
-        `Payee: ${name}\n${amount ? `Amount: ₹${amount}` : 'Amount: Not specified in QR'}`,
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-            onPress: () => setHasScannedQr(false),
-          },
-          {
-            text: 'Use Details',
-            onPress: () => {
-              onClose();
-              if (onBillScanned) {
-                onBillScanned({
-                  merchantOrPayee: name,
-                  amountRupees: amount,
-                  categoryName: 'Chai & Dining',
-                  paymentVia: 'UPI',
-                  summaryNote: upiData.note || `Paid to ${name} via UPI QR`,
-                });
-              }
-            },
-          },
-        ]
-      );
+      // Immediate haptic vibration feedback
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (hapticErr) {
+        console.warn('Haptic feedback notice:', hapticErr);
+      }
+
+      // Close camera modal immediately - ZERO popups, ZERO dialogs!
+      onClose();
+
+      if (onQrScannedSuccess) {
+        onQrScannedSuccess({
+          amountRupees: amount,
+          merchantOrPayee: name,
+          note: upiData.note,
+        });
+      } else if (onBillScanned) {
+        onBillScanned({
+          merchantOrPayee: name,
+          amountRupees: amount,
+          categoryName: 'Chai & Dining',
+          paymentVia: 'UPI',
+          summaryNote: upiData.note || `Paid to ${name} via UPI QR`,
+        });
+      }
     }
   };
 
   /**
-   * Compresses image using expo-image-manipulator (max width 1024px, JPEG 0.7)
-   * to guarantee fast uploads without timeouts.
+   * Compresses image client-side to max dimension 1000px and JPEG quality 0.6
+   * Reducing payload from ~8MB down to ~250KB for sub-second background OCR transmission.
    */
   const compressImage = async (uri: string): Promise<string> => {
     const manipResult = await ImageManipulator.manipulateAsync(
       uri,
-      [{ resize: { width: 1024 } }],
+      [{ resize: { width: 1000 } }], // Scale down from 4000px to 1000px
       {
-        compress: 0.7,
+        compress: 0.6,
         format: ImageManipulator.SaveFormat.JPEG,
         base64: true,
       }
@@ -278,11 +286,19 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
+        quality: 0.7,
         skipProcessing: true,
       });
 
       if (photo?.uri) {
+        if (mode === 'EXPENSE' && onStartBackgroundScan) {
+          // Zero-Interruption: Immediately return user to feed without blocking!
+          onClose();
+          const compressed = await compressImage(photo.uri);
+          onStartBackgroundScan(compressed, saveToVault);
+          return;
+        }
+
         setStatusMessage('Optimizing image size...');
         const compressedBase64 = await compressImage(photo.uri);
         await processCompressedImage(compressedBase64);
@@ -307,11 +323,19 @@ export const BillScannerModal: React.FC<BillScannerModalProps> = ({
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.85,
-        allowsEditing: true,
+        quality: 0.7,
+        allowsEditing: false,
       });
 
       if (!result.canceled && result.assets?.[0]?.uri) {
+        if (mode === 'EXPENSE' && onStartBackgroundScan) {
+          // Zero-Interruption: Immediately return user to feed without blocking!
+          onClose();
+          const compressed = await compressImage(result.assets[0].uri);
+          onStartBackgroundScan(compressed, saveToVault);
+          return;
+        }
+
         setStatusMessage('Compressing image...');
         const compressedBase64 = await compressImage(result.assets[0].uri);
         await processCompressedImage(compressedBase64);

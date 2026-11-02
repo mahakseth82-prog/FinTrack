@@ -157,7 +157,13 @@ router.get(
           const isImported =
             ['NOTIFICATION', 'SMS', 'EMAIL', 'UPI_NOTIFICATION'].includes(rawSource) ||
             Boolean(t.upi_reference_id);
-          const sourceType = isImported
+          const isBill =
+            rawSource === 'BILL' ||
+            Boolean(t.receipt_image_path) ||
+            Boolean(t.receipt_image_url);
+          const sourceType = isBill
+            ? 'BILL'
+            : isImported
             ? rawSource || 'NOTIFICATION'
             : rawSource || (t.source_draft_id ? 'VOICE' : 'MANUAL');
 
@@ -283,6 +289,7 @@ router.post(
         paymentVia = 'UPI',
         receiptImagePath,
         receiptImageUrl,
+        sourceType = 'MANUAL',
       } = req.body;
 
       const amountPaise = rupeesToPaise(amountRupees);
@@ -315,22 +322,36 @@ router.post(
         }
       }
 
-      const { data: inserted, error } = await req.db!
+      const insertPayload: any = {
+        workspace_id: workspaceId,
+        user_id: req.userId!,
+        category_id: categoryId,
+        kind,
+        amount_paise: amountPaise,
+        payment_via: paymentVia,
+        merchant_or_payee: merchantOrPayee,
+        description,
+        receipt_image_path: receiptImagePath || null,
+        receipt_image_url: receiptImageUrl || null,
+        source_type: sourceType,
+      };
+
+      let { data: inserted, error } = await req.db!
         .from('transactions')
-        .insert({
-          workspace_id: workspaceId,
-          user_id: req.userId!,
-          category_id: categoryId,
-          kind,
-          amount_paise: amountPaise,
-          payment_via: paymentVia,
-          merchant_or_payee: merchantOrPayee,
-          description,
-          receipt_image_path: receiptImagePath || null,
-          receipt_image_url: receiptImageUrl || null,
-        })
+        .insert(insertPayload)
         .select('*')
         .single();
+
+      if (error && error.message?.includes('source_type')) {
+        delete insertPayload.source_type;
+        const retry = await req.db!
+          .from('transactions')
+          .insert(insertPayload)
+          .select('*')
+          .single();
+        inserted = retry.data;
+        error = retry.error;
+      }
 
       if (error) {
         res.status(500).json({ error: error.message });
@@ -416,7 +437,13 @@ router.get(
         const isImported =
           ['NOTIFICATION', 'SMS', 'EMAIL', 'UPI_NOTIFICATION'].includes(rawSource) ||
           Boolean(t.upi_reference_id);
-        const sourceType = isImported
+        const isBill =
+          rawSource === 'BILL' ||
+          Boolean(t.receipt_image_path) ||
+          Boolean(t.receipt_image_url);
+        const sourceType = isBill
+          ? 'BILL'
+          : isImported
           ? rawSource || 'NOTIFICATION'
           : rawSource || (t.source_draft_id ? 'VOICE' : 'MANUAL');
 
