@@ -1,30 +1,47 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { setNotificationHandler } from 'expo-notifications/build/NotificationsHandler';
+import {
+  getPermissionsAsync,
+  requestPermissionsAsync,
+} from 'expo-notifications/build/NotificationPermissions';
+import { scheduleNotificationAsync } from 'expo-notifications/build/scheduleNotificationAsync';
+import { cancelScheduledNotificationAsync } from 'expo-notifications/build/cancelScheduledNotificationAsync';
+import { setNotificationChannelAsync } from 'expo-notifications/build/setNotificationChannelAsync';
+import { AndroidImportance } from 'expo-notifications/build/NotificationChannelManager.types';
+import { SchedulableTriggerInputTypes } from 'expo-notifications/build/Notifications.types';
 
 // Set notification handler to present notifications immediately even if app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+try {
+  setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+} catch (err) {
+  console.warn('Could not register notification handler:', err);
+}
 
 /**
  * Configure Android notification channels for high-priority renewal reminders.
  */
 export async function setupVaultNotificationChannels(): Promise<void> {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('vault-renewals', {
-      name: 'Vault Document Renewals',
-      description: 'Alerts for upcoming insurance, warranty, and document renewals',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#0284C7',
-      sound: 'default',
-    });
+    try {
+      await setNotificationChannelAsync('vault-renewals', {
+        name: 'Vault Document Renewals',
+        description: 'Alerts for upcoming insurance, warranty, and document renewals',
+        importance: AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#0284C7',
+        sound: 'default',
+      });
+    } catch (err) {
+      console.warn('Failed to set notification channel:', err);
+    }
   }
 }
 
@@ -38,11 +55,11 @@ export async function scheduleDocumentRenewalReminder(params: {
   expiryDateStr: string; // YYYY-MM-DD
 }): Promise<string | null> {
   try {
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    const { status: existingStatus } = await getPermissionsAsync();
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
       finalStatus = status;
     }
 
@@ -74,7 +91,7 @@ export async function scheduleDocumentRenewalReminder(params: {
       year: 'numeric',
     });
 
-    const notificationId = await Notifications.scheduleNotificationAsync({
+    const notificationId = await scheduleNotificationAsync({
       content: {
         title: 'Document Renewal Alert ⚠️',
         body: `Your "${params.title}" expires in 10 days on ${formattedExpiryDate}. Tap to view document details.`,
@@ -85,7 +102,7 @@ export async function scheduleDocumentRenewalReminder(params: {
         sound: 'default',
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        type: SchedulableTriggerInputTypes.DATE,
         date: reminderDate,
         channelId: 'vault-renewals',
       },
@@ -99,15 +116,15 @@ export async function scheduleDocumentRenewalReminder(params: {
 }
 
 /**
- * Cancels a previously scheduled notification when a document is deleted or renewed.
+ * Cancels a previously scheduled document renewal notification by its notificationId.
  */
 export async function cancelDocumentRenewalReminder(
-  notificationId?: string | null
+  notificationId: string | null | undefined
 ): Promise<void> {
   if (!notificationId) return;
   try {
-    await Notifications.cancelScheduledNotificationAsync(notificationId);
+    await cancelScheduledNotificationAsync(notificationId);
   } catch (err) {
-    console.warn('Failed to cancel renewal notification:', err);
+    console.warn('Failed to cancel scheduled notification:', err);
   }
 }

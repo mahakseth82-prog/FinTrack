@@ -407,7 +407,7 @@ export const BusinessDashboardScreen: React.FC<BusinessDashboardProps> = ({
               <ActivityIndicator size="small" color="#059669" />
             ) : (
               <>
-                <Ionicons name="camera-outline" size={17} color="#059669" />
+                <Ionicons name="scan-outline" size={17} color="#059669" />
                 <Text style={styles.topScanBtnText}>Scan Bill</Text>
               </>
             )}

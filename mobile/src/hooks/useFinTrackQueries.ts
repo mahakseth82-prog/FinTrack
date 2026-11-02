@@ -498,12 +498,10 @@ export function useScanBillOcr(workspaceId: string | null) {
         body: payload,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ['dashboard-summary', workspaceId],
-      });
-      queryClient.invalidateQueries({ queryKey: ['budgets', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['transactions', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['vault', workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['budgets'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['vault'] });
     },
   });
 }
