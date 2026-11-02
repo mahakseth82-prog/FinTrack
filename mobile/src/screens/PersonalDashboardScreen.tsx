@@ -18,11 +18,12 @@ import {
   useDashboardSummary,
   useBudgets,
   useTransactions,
+  useVaultDocuments,
   useCreateTransaction,
   useScanBillOcr,
   useSaveQrTransaction,
 } from '../hooks/useFinTrackQueries';
-import { TransactionDto, PaymentChannel } from '../types/ledger';
+import { TransactionDto, DocumentVaultDto, PaymentChannel } from '../types/ledger';
 import { formatINR } from '../utils/paise';
 import { SkeletonLoader, EmptyStateCard } from '../components/QueryStateViews';
 import { TransactionDetailModal } from '../components/TransactionDetailModal';
@@ -32,7 +33,7 @@ import { BillScannerModal, ScannedBillResult } from '../components/BillScannerMo
 interface PersonalDashboardProps {
   onOpenContactDetail?: (contactId: string) => void;
   onNavigateToTab?: (
-    tabName: 'HOME' | 'TRANSACTIONS' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE'
+    tabName: 'HOME' | 'TRANSACTIONS' | 'VAULT' | 'INSIGHTS' | 'UDHAAR' | 'PROFILE'
   ) => void;
   onTriggerVoice?: () => void;
   isRecordingVoice?: boolean;
@@ -145,9 +146,65 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
   const transactionsQuery = useTransactions(activeWorkspaceId, {
     monthYear: selectedMonthYear,
   });
+  const vaultQuery = useVaultDocuments(activeWorkspaceId);
   const scanBillMutation = useScanBillOcr(activeWorkspaceId);
   const saveQrMutation = useSaveQrTransaction(activeWorkspaceId);
   const createTxMutation = useCreateTransaction(activeWorkspaceId);
+
+  const [isExpiryBannerDismissed, setIsExpiryBannerDismissed] = useState(false);
+
+  // Urgent Expiring Document Alert (Insurance / Warranty / RC due in <= 10 days)
+  const urgentExpiringDoc = useMemo(() => {
+    if (!vaultQuery.data?.documents || vaultQuery.data.documents.length === 0) {
+      return null;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const candidates: Array<{
+      doc: DocumentVaultDto;
+      diffDays: number;
+      isExpired: boolean;
+      formattedExpiry: string;
+    }> = [];
+
+    for (const doc of vaultQuery.data.documents) {
+      if (!doc.expiryDate) continue;
+      const [y, m, d] = doc.expiryDate.split('-').map(Number);
+      if (!y || !m || !d) continue;
+
+      const expDate = new Date(y, m - 1, d, 0, 0, 0);
+      const diffMs = expDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+      // Show if expiring within 10 days or expired in last 7 days
+      if (diffDays <= 10 && diffDays >= -7) {
+        const formattedExpiry = expDate.toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+        });
+        candidates.push({
+          doc,
+          diffDays,
+          isExpired: diffDays < 0,
+          formattedExpiry,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    // Sort: upcoming renewals first (smallest positive diffDays), then expired
+    candidates.sort((a, b) => {
+      if (a.diffDays >= 0 && b.diffDays >= 0) return a.diffDays - b.diffDays;
+      if (a.diffDays >= 0) return -1;
+      if (b.diffDays >= 0) return 1;
+      return b.diffDays - a.diffDays;
+    });
+
+    return candidates[0];
+  }, [vaultQuery.data?.documents]);
 
   // Daily Midnight Reset: Automatically rollover at 12:00 AM local time
   const [currentDayKey, setCurrentDayKey] = useState(() => {
@@ -512,6 +569,79 @@ export const PersonalDashboardScreen: React.FC<PersonalDashboardProps> = ({
             <Text style={styles.topManualBtnText}>Manual Add</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Smart Urgent Document Expiry Alert Widget */}
+        {urgentExpiringDoc && !isExpiryBannerDismissed && (
+          <View
+            style={[
+              styles.expiryBannerContainer,
+              urgentExpiringDoc.isExpired
+                ? styles.expiryBannerExpired
+                : styles.expiryBannerUpcoming,
+            ]}
+          >
+            <View style={styles.expiryBannerIconWrap}>
+              <Ionicons
+                name={urgentExpiringDoc.isExpired ? 'alert-circle' : 'time'}
+                size={22}
+                color={urgentExpiringDoc.isExpired ? '#DC2626' : '#D97706'}
+              />
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={styles.expiryBannerContent}
+              onPress={() => onNavigateToTab && onNavigateToTab('VAULT')}
+            >
+              <View style={styles.expiryBannerHeaderRow}>
+                <Text
+                  style={[
+                    styles.expiryBannerBadge,
+                    urgentExpiringDoc.isExpired
+                      ? styles.expiryBannerBadgeExpired
+                      : styles.expiryBannerBadgeUpcoming,
+                  ]}
+                >
+                  {urgentExpiringDoc.isExpired
+                    ? 'EXPIRED'
+                    : `RENEWAL IN ${urgentExpiringDoc.diffDays} DAY${urgentExpiringDoc.diffDays === 1 ? '' : 'S'}`}
+                </Text>
+                <Text style={styles.expiryBannerDate}>
+                  Due: {urgentExpiringDoc.formattedExpiry}
+                </Text>
+              </View>
+
+              <Text style={styles.expiryBannerTitle} numberOfLines={1}>
+                {urgentExpiringDoc.doc.title}
+              </Text>
+
+              <View style={styles.expiryBannerActionRow}>
+                <Text
+                  style={[
+                    styles.expiryBannerActionText,
+                    urgentExpiringDoc.isExpired && { color: '#DC2626' },
+                  ]}
+                >
+                  View Document in Vault
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color={urgentExpiringDoc.isExpired ? '#DC2626' : '#059669'}
+                />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => setIsExpiryBannerDismissed(true)}
+              style={styles.expiryBannerCloseBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={17} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Today's Spending Card (Rollover at 12:00 AM midnight) */}
         <View style={styles.todaySpendingCard}>
@@ -1037,5 +1167,85 @@ const styles = StyleSheet.create({
   },
   scanToastTextError: {
     color: '#991B1B',
+  },
+  expiryBannerContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 14,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  expiryBannerUpcoming: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  expiryBannerExpired: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  expiryBannerIconWrap: {
+    marginTop: 2,
+    marginRight: 10,
+  },
+  expiryBannerContent: {
+    flex: 1,
+  },
+  expiryBannerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  expiryBannerBadge: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  expiryBannerBadgeUpcoming: {
+    backgroundColor: '#FEF3C7',
+    color: '#B45309',
+  },
+  expiryBannerBadgeExpired: {
+    backgroundColor: '#FEE2E2',
+    color: '#DC2626',
+  },
+  expiryBannerDate: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  expiryBannerTitle: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  expiryBannerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expiryBannerActionText: {
+    fontFamily: SYSTEM_FONT_STACK,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+    marginRight: 2,
+  },
+  expiryBannerCloseBtn: {
+    padding: 4,
+    marginLeft: 6,
   },
 });

@@ -389,6 +389,7 @@ export const RootNavigator: React.FC = () => {
           ) : (
             <BusinessDashboardScreen
               onOpenContactDetail={(id) => setSelectedContactId(id)}
+              onNavigateToTab={(t) => setActiveTab(t)}
             />
           )}
         </View>
