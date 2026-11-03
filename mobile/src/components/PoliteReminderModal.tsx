@@ -11,6 +11,7 @@ import {
   Platform,
   ScrollView,
   Pressable,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -66,63 +67,46 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
     }
   }, [loginPhoneDigits]);
 
-  // Auto-compose polite, respectful message whenever target or phone changes
+  // Auto-compose polite, respectful English message whenever target or phone changes
   useEffect(() => {
     if (!visible || !target) return;
 
     const amountFormatted = formatINR(target.remainingPaise, true);
     const amountRupees = (target.remainingPaise / 100).toFixed(0);
     const merchantName = user?.fullName || 'FinTrack';
-    const isHindi = user?.preferredLanguage === 'hi';
 
     const cleanPaymentNumber = activePhoneDigits;
     const upiLink = cleanPaymentNumber
       ? `upi://pay?pa=${cleanPaymentNumber}@upi&pn=${encodeURIComponent(
           merchantName
-        )}&am=${amountRupees}&cu=INR&tn=${encodeURIComponent('Khata Balance Settlement')}`
+        )}&am=${amountRupees}&cu=INR&tn=${encodeURIComponent('FinTrack Khata Payment')}`
       : '';
 
-    const dueClause = target.dueDate ? ` (Due: ${target.dueDate})` : '';
+    const dueClause = target.dueDate ? ` (Due date: ${target.dueDate})` : '';
 
-    let message = '';
-    if (isHindi) {
-      message =
-        `नमस्ते ${target.contactName} जी 🙏,\n\n` +
-        `FinTrack खाते के अनुसार आपका ${amountFormatted} का शेष बकाया है${dueClause}।\n\n` +
-        `जब भी सुविधा हो, कृपया नीचे दिए गए नंबर पर UPI ट्रांसफर कर दें:\n` +
-        `💳 UPI / मोबाइल: ${cleanPaymentNumber || 'फोन पर संपर्क करें'}\n` +
-        (upiLink ? `🔗 1-टैप डायरेक्ट पे लिंक:\n${upiLink}\n\n` : '\n') +
-        `सादर धन्यवाद! 🤝\n` +
-        `— ${merchantName}`;
-    } else {
-      // Respectful, natural Hinglish loved by Indian businesses & friends
-      message =
-        `Namaste ${target.contactName} ji 🙏,\n\n` +
-        `FinTrack khate par aapka ${amountFormatted} ka hisaab pending hai${dueClause}.\n\n` +
-        `Jab bhi suvidha ho, kripya is number par UPI kar dijiyega:\n` +
-        `💳 UPI / Mobile: ${cleanPaymentNumber || 'Phone par sampark karein'}\n` +
-        (upiLink ? `🔗 1-Tap Pay Link:\n${upiLink}\n\n` : '\n') +
-        `Dhanyawad! 🤝\n` +
-        `— ${merchantName}`;
-    }
+    const message =
+      `Hello ${target.contactName} 🙏,\n\n` +
+      `Hope you are having a wonderful day! Just a gentle reminder regarding the pending balance of ${amountFormatted} on FinTrack${dueClause}.\n\n` +
+      `Whenever convenient, please feel free to transfer via UPI or Mobile:\n` +
+      `💳 UPI / Mobile: ${cleanPaymentNumber || 'Please contact on mobile'}\n` +
+      (upiLink ? `🔗 1-Tap Direct Pay Link:\n${upiLink}\n\n` : '\n') +
+      `Thank you so much! 🤝\n` +
+      `— ${merchantName}`;
 
     setComposedText(message);
     setIsEditing(false);
-  }, [visible, target, activePhoneDigits, user?.fullName, user?.preferredLanguage]);
+  }, [visible, target, activePhoneDigits, user?.fullName]);
 
   if (!target) return null;
 
   const handleSendViaChannel = async (channel: 'WHATSAPP' | 'SMS') => {
-    const rawTargetPhone = target.phoneNumber || '';
-    const cleanTargetPhone = rawTargetPhone.replace(/[^\d+]/g, '');
-
     // Record polite reminder in ledger audit logs
     try {
       await logSentMutation.mutateAsync({
         obligationId: target.obligationId,
         contactId: target.contactId,
         channel,
-        language: user?.preferredLanguage === 'hi' ? 'HINDI' : 'HINGLISH',
+        language: 'ENGLISH',
         composedMessage: composedText,
       });
     } catch {
@@ -130,19 +114,47 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
     }
 
     const encodedMsg = encodeURIComponent(composedText);
-    const url =
-      channel === 'WHATSAPP'
-        ? `https://wa.me/${cleanTargetPhone.replace('+', '')}?text=${encodedMsg}`
-        : `sms:${cleanTargetPhone}?body=${encodedMsg}`;
 
-    try {
-      const canOpen = await Linking.canOpenURL(url).catch(() => true);
-      if (canOpen) {
-        await Linking.openURL(url);
+    if (channel === 'WHATSAPP') {
+      // Direct to WhatsApp app WITHOUT phone number so user picks the contact from their own address book
+      const whatsappDeepLink = `whatsapp://send?text=${encodedMsg}`;
+      const whatsappWebLink = `https://api.whatsapp.com/send?text=${encodedMsg}`;
+
+      try {
+        const canOpenDeep = await Linking.canOpenURL(whatsappDeepLink).catch(() => false);
+        if (canOpenDeep) {
+          await Linking.openURL(whatsappDeepLink);
+        } else {
+          await Linking.openURL(whatsappWebLink);
+        }
+      } catch {
+        try {
+          await Share.share({
+            message: composedText,
+            title: `FinTrack Payment Reminder for ${target.contactName}`,
+          });
+        } catch {
+          // Fallback
+        }
       }
-    } catch {
-      // Fallback
+    } else {
+      const rawTargetPhone = target.phoneNumber || '';
+      const cleanTargetPhone = rawTargetPhone.replace(/[^\d+]/g, '');
+      const smsUrl = cleanTargetPhone
+        ? `sms:${cleanTargetPhone}?body=${encodedMsg}`
+        : `sms:?body=${encodedMsg}`;
+
+      try {
+        await Linking.openURL(smsUrl);
+      } catch {
+        try {
+          await Share.share({ message: composedText });
+        } catch {
+          // Fallback
+        }
+      }
     }
+
     onClose();
   };
 
@@ -388,7 +400,9 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
                 style={styles.whatsAppPrimaryBtn}
               >
                 <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
-                <Text style={styles.whatsAppBtnText}>Send via WhatsApp</Text>
+                <Text style={styles.whatsAppBtnText}>
+                  Send via WhatsApp
+                </Text>
                 <Ionicons
                   name="arrow-forward"
                   size={16}
@@ -396,6 +410,9 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
                   style={{ marginLeft: 4 }}
                 />
               </TouchableOpacity>
+              <Text style={[styles.whatsAppHintText, { color: palette.textMocha }]}>
+                Opens WhatsApp directly so you can choose {target.contactName} from your contacts
+              </Text>
 
               {/* Secondary: Send SMS */}
               <TouchableOpacity
@@ -686,6 +703,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.2,
+  },
+  whatsAppHintText: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    fontWeight: '600',
+    marginTop: -4,
+    marginBottom: 4,
   },
   smsSecondaryBtn: {
     borderRadius: 14,
