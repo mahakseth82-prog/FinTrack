@@ -63,6 +63,16 @@ router.get(
       const { data: rows, error } = await query;
 
       if (error) {
+        if (
+          error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('documents_vault') ||
+          error.message?.includes('schema cache')
+        ) {
+          console.warn('Notice: documents_vault table not found in schema cache. Returning empty list.');
+          res.json({ documents: [] });
+          return;
+        }
         res.status(500).json({ error: error.message });
         return;
       }
@@ -285,8 +295,18 @@ router.post(
       const insertErr = insertResult.error;
 
       if (insertErr || !doc) {
+        let errorMsg = insertErr?.message || 'Failed to create document record';
+        if (
+          insertErr?.code === 'PGRST205' ||
+          insertErr?.code === '42P01' ||
+          errorMsg.includes('documents_vault') ||
+          errorMsg.includes('schema cache')
+        ) {
+          errorMsg =
+            'Database setup required: Please run migration 003_documents_vault_and_receipts.sql in your Supabase SQL Editor to create the documents_vault table.';
+        }
         res.status(500).json({
-          error: insertErr?.message || 'Failed to create document record',
+          error: errorMsg,
         });
         return;
       }

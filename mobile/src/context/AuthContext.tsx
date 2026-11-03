@@ -115,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (supabase) {
         const { data: profile } = await supabase
           .from('users_profile')
-          .select('preferred_language')
+          .select('preferred_language, phone_number, full_name')
           .eq('id', sessionUser.id)
           .maybeSingle();
 
@@ -134,6 +134,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             langChosenExplicitly = true;
           }
         }
+
+        setUser({
+          id: sessionUser.id,
+          fullName:
+            profile?.full_name ||
+            sessionUser.user_metadata?.full_name ||
+            'FinTrack User',
+          phoneNumber:
+            profile?.phone_number ||
+            sessionUser.phone ||
+            sessionUser.user_metadata?.phone_number ||
+            '',
+          email: sessionUser.email || '',
+          preferredLanguage: prefLang,
+        });
+        setHasSelectedLanguage(langChosenExplicitly);
+        return;
       }
     } catch {
       // fallback
