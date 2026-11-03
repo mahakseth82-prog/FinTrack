@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import {
   Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFinTrackTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useLogReminderSent } from '../hooks/useFinTrackQueries';
@@ -46,61 +45,30 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
 
   const [composedText, setComposedText] = useState('');
   const [isEditing, setIsEditing] = useState(false);
-  const [customPhone, setCustomPhone] = useState('');
-  const [isAddingPhone, setIsAddingPhone] = useState(false);
 
-  // Extract clean 10-digit phone number from login user
-  const loginPhoneDigits = useMemo(() => {
-    const raw = user?.phoneNumber || '';
-    const digits = raw.replace(/\D/g, '');
-    return digits.length >= 10 ? digits.slice(-10) : digits;
-  }, [user?.phoneNumber]);
-
-  const activePhoneDigits = loginPhoneDigits || customPhone.replace(/\D/g, '').slice(-10);
-
-  // Load saved fallback phone if login user has no phone stored
-  useEffect(() => {
-    if (!loginPhoneDigits) {
-      AsyncStorage.getItem('@fintrack_receiving_phone').then((saved) => {
-        if (saved) setCustomPhone(saved);
-      });
-    }
-  }, [loginPhoneDigits]);
-
-  // Auto-compose polite, respectful English message whenever target or phone changes
+  // Auto-compose polite, respectful reminder in English whenever target changes
   useEffect(() => {
     if (!visible || !target) return;
 
     const amountFormatted = formatINR(target.remainingPaise, true);
-    const amountRupees = (target.remainingPaise / 100).toFixed(0);
     const merchantName = user?.fullName || 'FinTrack';
-
-    const cleanPaymentNumber = activePhoneDigits;
-    const upiLink = cleanPaymentNumber
-      ? `upi://pay?pa=${cleanPaymentNumber}@upi&pn=${encodeURIComponent(
-          merchantName
-        )}&am=${amountRupees}&cu=INR&tn=${encodeURIComponent('FinTrack Khata Payment')}`
-      : '';
-
     const dueClause = target.dueDate ? ` (Due date: ${target.dueDate})` : '';
 
     const message =
       `Hello ${target.contactName} 🙏,\n\n` +
-      `Hope you are having a wonderful day! Just a gentle reminder regarding the pending balance of ${amountFormatted} on FinTrack${dueClause}.\n\n` +
-      `Whenever convenient, please feel free to transfer via UPI or Mobile:\n` +
-      `💳 UPI / Mobile: ${cleanPaymentNumber || 'Please contact on mobile'}\n` +
-      (upiLink ? `🔗 1-Tap Direct Pay Link:\n${upiLink}\n\n` : '\n') +
-      `Thank you so much! 🤝\n` +
+      `Hope you are doing well! This is a gentle reminder regarding your pending balance of ${amountFormatted} on FinTrack${dueClause}.\n\n` +
+      `Whenever convenient, kindly arrange to settle the balance at your earliest convenience.\n\n` +
+      `Thank you so much for your support! 🤝\n` +
       `— ${merchantName}`;
 
     setComposedText(message);
     setIsEditing(false);
-  }, [visible, target, activePhoneDigits, user?.fullName]);
+  }, [visible, target, user?.fullName]);
 
   if (!target) return null;
 
   const handleSendViaChannel = async (channel: 'WHATSAPP' | 'SMS') => {
-    // Record polite reminder in ledger audit logs
+    // Record reminder in ledger audit logs
     try {
       await logSentMutation.mutateAsync({
         obligationId: target.obligationId,
@@ -110,13 +78,13 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
         composedMessage: composedText,
       });
     } catch {
-      // Continue opening WhatsApp/SMS even if log mutation fails or is offline
+      // Continue opening WhatsApp/SMS even if logging is offline
     }
 
     const encodedMsg = encodeURIComponent(composedText);
 
     if (channel === 'WHATSAPP') {
-      // Direct to WhatsApp app WITHOUT phone number so user picks the contact from their own address book
+      // Directs to WhatsApp without phone number so user can pick the contact by whatever name they saved them
       const whatsappDeepLink = `whatsapp://send?text=${encodedMsg}`;
       const whatsappWebLink = `https://api.whatsapp.com/send?text=${encodedMsg}`;
 
@@ -131,7 +99,7 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
         try {
           await Share.share({
             message: composedText,
-            title: `FinTrack Payment Reminder for ${target.contactName}`,
+            title: `FinTrack Reminder for ${target.contactName}`,
           });
         } catch {
           // Fallback
@@ -217,7 +185,7 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
                     {contactInitial}
                   </Text>
                 </View>
-                <View>
+                <View style={styles.nameContainer}>
                   <Text
                     style={[
                       styles.contactNameText,
@@ -233,7 +201,7 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
                       { color: palette.textMocha },
                     ]}
                   >
-                    {target.phoneNumber || 'No phone number'}
+                    {target.phoneNumber || 'FinTrack Contact'}
                   </Text>
                 </View>
               </View>
@@ -262,73 +230,6 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
               </View>
             </View>
 
-            {/* Auto-linked Payment Destination Banner */}
-            <View
-              style={[
-                styles.paymentBanner,
-                {
-                  backgroundColor: palette.surfaceBeige,
-                  borderColor: palette.borderLatte,
-                },
-              ]}
-            >
-              <View style={styles.paymentBannerIconBox}>
-                <Ionicons name="card" size={17} color="#059669" />
-              </View>
-              <View style={styles.paymentBannerTextBox}>
-                <Text
-                  style={[styles.paymentBannerTitle, { color: palette.textEspresso }]}
-                >
-                  {activePhoneDigits
-                    ? `Receiving on: +91 ${activePhoneDigits.slice(0, 5)} ${activePhoneDigits.slice(5)}`
-                    : 'Add receiving phone / UPI'}
-                </Text>
-                <Text
-                  style={[styles.paymentBannerSub, { color: palette.textMocha }]}
-                >
-                  {loginPhoneDigits
-                    ? '✓ Auto-linked from your FinTrack login account'
-                    : '1-tap UPI links will direct payments here'}
-                </Text>
-              </View>
-
-              {!loginPhoneDigits && (
-                <TouchableOpacity
-                  onPress={() => setIsAddingPhone((prev) => !prev)}
-                  style={styles.changePhoneBtn}
-                >
-                  <Text style={styles.changePhoneText}>
-                    {isAddingPhone ? 'Done' : 'Set'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* In case user has no phone in login profile, prompt cleanly */}
-            {isAddingPhone && !loginPhoneDigits && (
-              <View style={styles.phoneInputRow}>
-                <TextInput
-                  value={customPhone}
-                  onChangeText={(val) => {
-                    setCustomPhone(val);
-                    AsyncStorage.setItem('@fintrack_receiving_phone', val.trim());
-                  }}
-                  placeholder="Enter 10-digit mobile number"
-                  placeholderTextColor={palette.textMocha}
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  style={[
-                    styles.phoneTextInput,
-                    {
-                      borderColor: palette.borderLatte,
-                      color: palette.textEspresso,
-                      backgroundColor: palette.surfaceElevated,
-                    },
-                  ]}
-                />
-              </View>
-            )}
-
             {/* WhatsApp Chat Bubble Preview */}
             <View style={styles.previewHeaderRow}>
               <View style={styles.previewTitleWithDot}>
@@ -339,7 +240,7 @@ export const PoliteReminderModal: React.FC<PoliteReminderModalProps> = ({
                     { color: palette.textEspresso },
                   ]}
                 >
-                  POLITE REMINDER (AUTO-COMPOSED)
+                  POLITE REMINDER MESSAGE
                 </Text>
               </View>
               <TouchableOpacity
@@ -505,6 +406,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
   },
+  nameContainer: {
+    flex: 1,
+  },
   contactNameText: {
     fontSize: 17,
     fontWeight: '800',
@@ -547,62 +451,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  paymentBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 10,
-  },
-  paymentBannerIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#ECFDF5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  paymentBannerTextBox: {
-    flex: 1,
-  },
-  paymentBannerTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  paymentBannerSub: {
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  changePhoneBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#E2E8F0',
-  },
-  changePhoneText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  phoneInputRow: {
-    marginTop: -4,
-  },
-  phoneTextInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 13,
-    fontWeight: '600',
-  },
   previewHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 4,
   },
   previewTitleWithDot: {
     flexDirection: 'row',
